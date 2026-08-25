@@ -562,7 +562,7 @@ APP_NAME = "Cinnamon Presets"
 VERSION = "BETA-0.18"
 
 # TODO: fill these in once the accounts/repo are public.
-GITHUB_REPO_URL = ""
+GITHUB_REPO_URL = "https://github.com/SaadTerminal/Cinnamon-Presets.git"
 PATREON_URL = ""
 YOUTUBE_URL = ""
 
