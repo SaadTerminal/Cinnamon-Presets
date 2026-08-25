@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Cinnamon Presets
+Comment=Save and switch between full Cinnamon desktop looks
+Exec=cinnamon-presets
+Icon=cinnamon-presets
+Terminal=false
+Categories=Settings;DesktopSettings;
+StartupNotify=true

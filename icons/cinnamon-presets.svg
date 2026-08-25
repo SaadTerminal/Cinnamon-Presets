@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <!-- Placeholder icon — swap this file out for your real one later.
+       Filename and dimensions can stay the same if you just replace
+       the contents. -->
+  <rect x="0" y="0" width="128" height="128" rx="24" fill="#2b2e3a"/>
+
+  <!-- back swatch -->
+  <rect x="24" y="34" width="52" height="52" rx="10" fill="#4a7a63" transform="rotate(-8 50 60)"/>
+  <!-- middle swatch -->
+  <rect x="40" y="30" width="52" height="52" rx="10" fill="#3f8f6f" transform="rotate(4 66 56)"/>
+  <!-- front swatch -->
+  <rect x="46" y="46" width="54" height="54" rx="10" fill="#7fd1a8"/>
+
+  <!-- small "check" mark on the front swatch to suggest "applied preset" -->
+  <path d="M60 74 L69 83 L88 60" stroke="#1b3327" stroke-width="6"
+        fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
