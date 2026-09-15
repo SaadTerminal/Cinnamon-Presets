@@ -7,3 +7,4 @@ Icon=cinnamon-presets
 Terminal=false
 Categories=Settings;DesktopSettings;
 StartupNotify=true
+StartupWMClass=cinnamon-presets

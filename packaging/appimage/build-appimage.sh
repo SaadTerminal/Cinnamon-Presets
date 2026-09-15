@@ -44,10 +44,25 @@ install -m 755 "$PROJECT_ROOT"/helpers/*.sh "$APPDIR/usr/share/cinnamon-presets/
 install -d "$APPDIR/usr/share/icons/hicolor/128x128/apps"
 install -m 644 "$PROJECT_ROOT/icons/cinnamon-presets.svg" "$APPDIR/usr/share/icons/hicolor/128x128/apps/"
 
+# Also under scalable/apps -- see ../../debian/rules for why both locations matter.
+install -d "$APPDIR/usr/share/icons/hicolor/scalable/apps"
+install -m 644 "$PROJECT_ROOT/icons/cinnamon-presets.svg" "$APPDIR/usr/share/icons/hicolor/scalable/apps/"
+
 if compgen -G "$PROJECT_ROOT/icons/categories/*" > /dev/null 2>&1; then
     install -d "$APPDIR/usr/share/cinnamon-presets/icons/categories"
     install -m 644 "$PROJECT_ROOT"/icons/categories/* "$APPDIR/usr/share/cinnamon-presets/icons/categories/"
 fi
+
+# Custom UI icons (toolbar/action glyphs, see UI_ICON_DIR_CANDIDATES) --
+# same "copy whatever exists so far" behavior, empty today.
+if compgen -G "$PROJECT_ROOT/icons/ui/*" > /dev/null 2>&1; then
+    install -d "$APPDIR/usr/share/cinnamon-presets/icons/ui"
+    install -m 644 "$PROJECT_ROOT"/icons/ui/* "$APPDIR/usr/share/cinnamon-presets/icons/ui/"
+fi
+
+# CHANGELOG.md, read at runtime for the one-time "what's new" popup after
+# an update (see get_changelog_entries_since() in the app).
+install -m 644 "$PROJECT_ROOT/CHANGELOG.md" "$APPDIR/usr/share/cinnamon-presets/CHANGELOG.md"
 
 # AppImage's own required layout: a .desktop file and an icon, both at
 # the AppDir root (not under usr/share the way the "real" installed

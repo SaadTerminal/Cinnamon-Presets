@@ -65,7 +65,7 @@ from pathlib import Path
 from urllib.parse import urlparse, unquote
 
 APP_NAME = "Cinnamon Presets"
-VERSION = "0.19.0"
+VERSION = "0.20.0"
 
 GITHUB_REPO_URL = "https://github.com/SaadTerminal/Cinnamon-Presets.git"
 PATREON_URL = ""
@@ -96,6 +96,9 @@ INSTALLED_DESKTOP_FILE = Path.home() / ".local" / "share" / "applications" / "ci
 INSTALLED_ICON_PATH = (
     Path.home() / ".local" / "share" / "icons" / "hicolor" / "128x128" / "apps" / "cinnamon-presets.svg"
 )
+INSTALLED_SCALABLE_ICON_PATH = (
+    Path.home() / ".local" / "share" / "icons" / "hicolor" / "scalable" / "apps" / "cinnamon-presets.svg"
+)
 INSTALLED_SHARE_DIR = Path.home() / ".local" / "share" / "cinnamon-presets"
 
 # General tab: persisted UI defaults (view mode, thumbnail size, sort
@@ -109,6 +112,13 @@ DEFAULT_APP_SETTINGS = {
     "default_view_mode": "grid",
     "default_thumb_size": 160,
     "default_sort_mode": "name",
+    # Last VERSION this app showed a "what's new" changelog popup for
+    # (see _maybe_show_changelog_popup()). Empty string means either a
+    # genuinely fresh install, or an upgrade from a build that predates
+    # this field -- both are treated the same way (stamp it silently,
+    # no popup) since there's no reliable "what version were you on
+    # before" to diff a changelog against in either case.
+    "last_seen_version": "",
 }
 
 # Diagnostics tab: rotating log file, under its own logs/ subfolder --
@@ -631,7 +641,7 @@ def uninstall_app(purge=False):
     removed = []
     errors = []
 
-    for path in (INSTALLED_BIN_PATH, INSTALLED_DESKTOP_FILE, INSTALLED_ICON_PATH):
+    for path in (INSTALLED_BIN_PATH, INSTALLED_DESKTOP_FILE, INSTALLED_ICON_PATH, INSTALLED_SCALABLE_ICON_PATH):
         try:
             if path.exists() or path.is_symlink():
                 path.unlink()
@@ -2946,6 +2956,64 @@ def perform_appimage_update(asset_url):
     return True, "Update downloaded and installed. Restart the app to finish."
 
 
+def _find_changelog_path():
+    """Finds CHANGELOG.md using the exact same search order as
+    _helpers_dir()/CATEGORY_ICON_DIR_CANDIDATES (see
+    _app_data_dir_candidates()), since it's installed as a sibling of
+    helpers/ and icons/ in every install kind -- see install.sh,
+    debian/rules, and packaging/appimage/build-appimage.sh. Returns None
+    if it can't be found anywhere, which callers treat as "nothing to
+    show", never an error."""
+    for root in _app_data_dir_candidates():
+        candidate = root / "CHANGELOG.md"
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _parse_changelog_sections():
+    """Splits CHANGELOG.md into a list of (version_tuple, heading, body)
+    entries, in file order (newest first, matching how CHANGELOG.md is
+    actually written). version_tuple comes from feeding the heading's
+    first whitespace-separated token through _parse_version() -- exact
+    for a clean "0.20.0" heading, and harmlessly collapses an old
+    "BETA-0.18 (bug fixes) adds"-style heading to (0, 0, 0), which is
+    fine here since this is only ever compared against last_seen_version
+    values this app itself wrote, and it only ever started writing clean
+    X.Y.Z strings from 0.20.0 onward. Returns [] if the file can't be
+    found or read."""
+    path = _find_changelog_path()
+    if not path:
+        return []
+    try:
+        text = path.read_text()
+    except OSError:
+        return []
+
+    sections = []
+    # Split on level-2 ("## ...") headings; parts[0] is the "# Changelog"
+    # preamble above the first one, so it's skipped.
+    for part in re.split(r"(?m)^## ", text)[1:]:
+        heading, _, body = part.partition("\n")
+        heading = heading.strip()
+        body = body.strip()
+        token = heading.split()[0] if heading.split() else heading
+        sections.append((_parse_version(token), heading, body))
+    return sections
+
+
+def get_changelog_entries_since(last_version):
+    """Returns a display-ready string of every changelog section newer
+    than last_version, newest first -- or "" if there's nothing newer
+    (including if no changelog could be found at all), which callers
+    treat as "don't show a popup"."""
+    since = _parse_version(last_version)
+    newer = [(v, h, b) for v, h, b in _parse_changelog_sections() if v > since]
+    if not newer:
+        return ""
+    return "\n\n".join(f"{h}\n\n{b}" if b else h for _, h, b in newer)
+
+
 def _load_last_update_check_time():
     try:
         data = json.loads(UPDATE_CHECK_STATE_FILE.read_text())
@@ -3183,10 +3251,7 @@ def load_category_icon_pixbuf(cat, size):
 # icons/ui/ whenever that art exists, no new plumbing needed.
 # ---------------------------------------------------------------------------
 
-UI_ICON_DIR_CANDIDATES = [
-    Path(__file__).resolve().parent / "icons" / "ui",
-    Path.home() / ".local/share/cinnamon-presets/icons/ui",
-]
+UI_ICON_DIR_CANDIDATES = [root / "icons" / "ui" for root in _app_data_dir_candidates()]
 
 UI_SYSTEM_ICON_NAMES = {
     "import": ["document-import", "go-down"],
@@ -5549,16 +5614,107 @@ class CinnamonPresetsWindow(Gtk.Window):
         # keeps it unobtrusive -- set_no_show_all(True) so
         # the window's own show_all() (in main()) can't accidentally
         # reveal it; only _show_update_banner() ever makes it visible.
+        #
+        # message_type=OTHER (rather than INFO) deliberately gets no
+        # theme-supplied ".info" color class, so the "cp-update-banner"
+        # CSS class below is the only thing coloring it -- a themed
+        # gradient in the app's own brand green (see icons/cinnamon-
+        # presets.svg) instead of GTK's generic system blue.
         self.update_infobar = Gtk.InfoBar()
-        self.update_infobar.set_message_type(Gtk.MessageType.INFO)
+        self.update_infobar.set_message_type(Gtk.MessageType.OTHER)
+        self.update_infobar.get_style_context().add_class("cp-update-banner")
         self.update_infobar.set_show_close_button(True)
         self.update_infobar.add_button("Update Now", Gtk.ResponseType.OK)
+        self.update_infobar.get_action_area().get_style_context().add_class("cp-update-banner-actions")
         self.update_infobar.connect("response", self._on_update_infobar_response)
         self.update_infobar.set_no_show_all(True)
         self.update_infobar.set_visible(False)
+
+        content = self.update_infobar.get_content_area()
+        content.set_spacing(10)
+
+        update_icon = Gtk.Image.new_from_icon_name(
+            "software-update-available-symbolic", Gtk.IconSize.DND
+        )
+        update_icon.get_style_context().add_class("cp-update-banner-icon")
+        content.pack_start(update_icon, False, False, 0)
+
+        text_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
+        self.update_infobar_title = Gtk.Label(xalign=0)
+        self.update_infobar_title.get_style_context().add_class("cp-update-banner-title")
+        text_box.pack_start(self.update_infobar_title, False, False, 0)
+
+        subtitle_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         self.update_infobar_label = Gtk.Label(xalign=0)
-        self.update_infobar.get_content_area().pack_start(self.update_infobar_label, True, True, 0)
+        self.update_infobar_label.get_style_context().add_class("cp-update-banner-subtitle")
+        subtitle_row.pack_start(self.update_infobar_label, False, False, 0)
+        # A real Gtk.LinkButton -- clicking it opens the release page in
+        # the default browser on its own (GTK's built-in "activate-link"
+        # behavior), no extra wiring needed. Its own uri is set fresh
+        # each time _show_update_banner() runs.
+        self.update_infobar_link = Gtk.LinkButton.new_with_label("", "Learn more")
+        self.update_infobar_link.get_style_context().add_class("cp-update-banner-link")
+        subtitle_row.pack_start(self.update_infobar_link, False, False, 0)
+        text_box.pack_start(subtitle_row, False, False, 0)
+
+        content.pack_start(text_box, True, True, 0)
+        # content's own no-show-all is false (only self.update_infobar's
+        # is set), so this safely shows everything just packed above --
+        # the banner itself still stays hidden via set_visible(False)
+        # until _show_update_banner() flips it, same as before.
+        content.show_all()
         vbox.pack_start(self.update_infobar, False, False, 0)
+
+        # Rounded, on-brand banner styling -- same "raw CSS at APPLICATION
+        # priority" approach _CountdownOverlay already uses elsewhere in
+        # this file, so it overrides whatever GTK theme is active rather
+        # than being fought by it.
+        update_banner_css = Gtk.CssProvider()
+        update_banner_css.load_from_data(b"""
+            .cp-update-banner {
+                background-image: linear-gradient(135deg, #3f8f6f, #1b3327);
+                border: none;
+                border-radius: 10px;
+                padding: 4px 6px;
+            }
+            .cp-update-banner-title {
+                color: #ffffff;
+                font-weight: bold;
+            }
+            .cp-update-banner-subtitle {
+                color: rgba(255, 255, 255, 0.82);
+            }
+            .cp-update-banner-icon {
+                color: #7fd1a8;
+            }
+            .cp-update-banner-link, .cp-update-banner-link:visited {
+                color: #7fd1a8;
+            }
+            .cp-update-banner-link label {
+                color: #7fd1a8;
+            }
+            .cp-update-banner-actions button {
+                color: #1b3327;
+                background-image: none;
+                background-color: #7fd1a8;
+                border: none;
+                font-weight: bold;
+            }
+            .cp-update-banner-actions button:hover {
+                background-color: #a3e0c1;
+            }
+            .cp-update-banner button.close {
+                color: rgba(255, 255, 255, 0.82);
+                background: transparent;
+                border: none;
+            }
+            .cp-update-banner button.close:hover {
+                color: #ffffff;
+            }
+        """)
+        Gtk.StyleContext.add_provider_for_screen(
+            Gdk.Screen.get_default(), update_banner_css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
+        )
 
         # --- top row: search + the Import/Export "I/O duo" -----------------
         # Import/Export are neither pure browsing controls (Sort/Grid/List,
@@ -5806,6 +5962,13 @@ class CinnamonPresetsWindow(Gtk.Window):
         # surfaces anything if an update is actually found (the banner) --
         # silent otherwise, unlike the manual "Check Now" button.
         GLib.timeout_add_seconds(2, self._maybe_auto_check_updates)
+
+        # One-time "what's new" popup after an update -- purely local
+        # (just a settings read + a file read), so no throttling needed
+        # the way the network update check has. Idle rather than
+        # immediate so it appears after the main window's first paint,
+        # not blocking it.
+        GLib.idle_add(self._maybe_show_changelog_popup)
 
     def _on_footer_link(self, _btn, url, label):
         if not url:
@@ -6295,10 +6458,69 @@ class CinnamonPresetsWindow(Gtk.Window):
             self.set_status(f"You're up to date ({VERSION}).")
         return False
 
+    def _maybe_show_changelog_popup(self):
+        """Shows what's new since the last version this app actually
+        told the user about, once, the first time it launches after an
+        update -- see DEFAULT_APP_SETTINGS["last_seen_version"] for why
+        an empty stored value never triggers this (fresh installs and
+        upgrades from a pre-0.20.0 build both get silently stamped
+        instead of a popup, since neither has a real "previous version"
+        to diff a changelog against)."""
+        settings = load_app_settings()
+        last_seen = settings.get("last_seen_version", "")
+        if last_seen and _parse_version(VERSION) > _parse_version(last_seen):
+            entries = get_changelog_entries_since(last_seen)
+            if entries:
+                self._show_changelog_dialog(entries)
+        if last_seen != VERSION:
+            settings["last_seen_version"] = VERSION
+            save_app_settings(settings)
+        return False  # GLib.idle_add one-shot
+
+    def _show_changelog_dialog(self, entries_text):
+        dialog = Gtk.Dialog(title=f"What's New in {APP_NAME}", transient_for=self, flags=0)
+        dialog.add_button("Close", Gtk.ResponseType.CLOSE)
+        dialog.set_default_response(Gtk.ResponseType.CLOSE)
+        dialog.set_default_size(540, 440)
+
+        box = dialog.get_content_area()
+        box.set_border_width(12)
+        box.set_spacing(8)
+
+        header = Gtk.Label(xalign=0)
+        header.set_markup(f"<b>Updated to {GLib.markup_escape_text(VERSION)}</b> — here's what's new:")
+        box.pack_start(header, False, False, 0)
+
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scrolled.set_vexpand(True)
+        scrolled.set_shadow_type(Gtk.ShadowType.IN)
+        textview = Gtk.TextView()
+        textview.set_editable(False)
+        textview.set_cursor_visible(False)
+        textview.set_wrap_mode(Gtk.WrapMode.WORD)
+        textview.set_left_margin(8)
+        textview.set_right_margin(8)
+        textview.set_top_margin(6)
+        textview.set_bottom_margin(6)
+        textview.get_buffer().set_text(entries_text)
+        scrolled.add(textview)
+        box.pack_start(scrolled, True, True, 0)
+
+        dialog.show_all()
+        dialog.run()
+        dialog.destroy()
+
     def _show_update_banner(self, latest, url, asset_url=None):
         self._pending_update_url = url
         self._pending_update_asset_url = asset_url
-        self.update_infobar_label.set_text(f"Update available: {latest} (you have {VERSION}).")
+        self.update_infobar_title.set_text(f"A new update ({latest}) is available")
+        self.update_infobar_label.set_text(f"You have {VERSION}.")
+        if url:
+            self.update_infobar_link.set_uri(url)
+            self.update_infobar_link.set_visible(True)
+        else:
+            self.update_infobar_link.set_visible(False)
         self.update_infobar.set_visible(True)
 
     def _on_update_infobar_response(self, infobar, response_id):
@@ -6411,6 +6633,17 @@ class CinnamonPresetsWindow(Gtk.Window):
 
 
 def main():
+    # Without this, GTK derives the program name (and therefore WM_CLASS,
+    # which the window manager/taskbar/alt-tab use to look up this app's
+    # icon) from sys.argv[0] -- "cinnamon-presets" for the installed
+    # binary, but "cinnamon-presets.py" for a straight `python3
+    # cinnamon-presets.py` dev run, neither of which is guaranteed to
+    # exactly match the .desktop file's own name ("cinnamon-presets",
+    # from cinnamon-presets.desktop). A mismatch there is exactly what
+    # makes a window manager fall back to a generic icon instead of the
+    # one the .desktop file points at. Setting this explicitly, once, up
+    # front removes that guesswork regardless of how the app was launched.
+    GLib.set_prgname("cinnamon-presets")
     ensure_dirs()
     setup_logging()
     logger.info(f"--- {APP_NAME} {VERSION} starting ---")

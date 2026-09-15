@@ -15,7 +15,8 @@ Depends: ${misc:Depends},
          gir1.2-gtk-3.0,
          python3-cairo,
          dconf-cli,
-         policykit-1 | pkexec
+         policykit-1 | pkexec,
+         hicolor-icon-theme
 Recommends: cinnamon
 Description: Desktop preset manager for Linux Mint Cinnamon
  Saves and restores full desktop "look" presets -- GTK theme, icon

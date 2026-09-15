@@ -15,6 +15,7 @@ fi
 BIN_DIR="$HOME/.local/bin"
 APPS_DIR="$HOME/.local/share/applications"
 ICON_DIR="$HOME/.local/share/icons/hicolor/128x128/apps"
+SCALABLE_ICON_DIR="$HOME/.local/share/icons/hicolor/scalable/apps"
 # The whole shared-data directory, not just helpers/ -- install.sh also
 # populates icons/categories/ under here, and a narrower `rm -rf
 # "$SHARE_DIR/helpers"` would leave that orphaned behind. Keep this in
@@ -28,6 +29,7 @@ echo "Removing Cinnamon Presets..."
 rm -f "$BIN_DIR/cinnamon-presets"
 rm -f "$APPS_DIR/cinnamon-presets.desktop"
 rm -f "$ICON_DIR/cinnamon-presets.svg"
+rm -f "$SCALABLE_ICON_DIR/cinnamon-presets.svg"
 rm -rf "$SHARE_DIR"
 
 if $PURGE; then

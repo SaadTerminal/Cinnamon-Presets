@@ -28,9 +28,27 @@ override_dh_auto_install:
 	install -d debian/cinnamon-presets/usr/share/icons/hicolor/128x128/apps
 	install -m 644 icons/cinnamon-presets.svg debian/cinnamon-presets/usr/share/icons/hicolor/128x128/apps/
 
+	# Also under scalable/apps, the location the icon theme spec actually
+	# expects a vector icon to live -- 128x128/apps alone worked for some
+	# lookups but not all (see CHANGELOG 0.20.0: app icon missing after
+	# a .deb install). Shipping both covers every consumer.
+	install -d debian/cinnamon-presets/usr/share/icons/hicolor/scalable/apps
+	install -m 644 icons/cinnamon-presets.svg debian/cinnamon-presets/usr/share/icons/hicolor/scalable/apps/
+
 	# Custom hand-drawn category icons -- optional, same "copy whatever
 	# exists so far" behavior as install.sh's matching step.
 	if compgen -G "icons/categories/*" > /dev/null 2>&1; then \
 		install -d debian/cinnamon-presets/usr/share/cinnamon-presets/icons/categories; \
 		install -m 644 icons/categories/* debian/cinnamon-presets/usr/share/cinnamon-presets/icons/categories/; \
 	fi
+
+	# Custom UI icons (toolbar/action glyphs, see UI_ICON_DIR_CANDIDATES) --
+	# same "copy whatever exists so far" behavior, empty today.
+	if compgen -G "icons/ui/*" > /dev/null 2>&1; then \
+		install -d debian/cinnamon-presets/usr/share/cinnamon-presets/icons/ui; \
+		install -m 644 icons/ui/* debian/cinnamon-presets/usr/share/cinnamon-presets/icons/ui/; \
+	fi
+
+	# CHANGELOG.md, read at runtime for the one-time "what's new" popup
+	# after an update (see get_changelog_entries_since() in the app).
+	install -m 644 CHANGELOG.md debian/cinnamon-presets/usr/share/cinnamon-presets/CHANGELOG.md

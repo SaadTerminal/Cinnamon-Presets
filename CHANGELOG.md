@@ -2,6 +2,27 @@
 
 All notable changes to Cinnamon Presets, from the pre-1.0 beta series.
 
+## 0.20.0
+
+  - Fixed the app icon not showing up after a .deb install: the icon
+    was only shipped under hicolor/128x128/apps, not the
+    hicolor/scalable/apps location some lookups expect for a vector
+    icon; it's now shipped in both places for every install method
+    (.deb, AppImage, install.sh). Also set the app's prgname explicitly
+    on startup and added StartupWMClass to the .desktop file, so the
+    window/taskbar icon reliably matches regardless of how the app was
+    launched, instead of depending on argv[0] happening to line up.
+  - Redesigned the update banner: it's now a rounded, on-brand card
+    (matching the app's own icon colors) instead of GTK's plain default
+    blue InfoBar, clearly states the new version, and adds a "Learn
+    more" link to the release notes alongside the existing Update Now
+    button.
+  - New: after updating, the next launch shows a one-time "What's New"
+    popup with the changelog entries since the version you were
+    previously on. Only fires on a real upgrade (a fresh install just
+    silently remembers its own version, no popup) and only shows once
+    per version.
+
 ## 0.19.0
 
   - Switched from BETA-x.y version strings to this project's own X.Y.Z
