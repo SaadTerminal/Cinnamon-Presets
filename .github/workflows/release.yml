@@ -18,7 +18,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install packaging tools
-        run: sudo apt-get update && sudo apt-get install -y debhelper fakeroot
+        run: sudo apt-get update && sudo apt-get install -y debhelper fakeroot build-essential
       - name: Build .deb
         run: dpkg-buildpackage -us -uc -b
       - name: Move .deb out of the parent dir dpkg-buildpackage drops it in
