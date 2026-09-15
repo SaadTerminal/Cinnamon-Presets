@@ -2,7 +2,7 @@
 # Installs Cinnamon Presets for the current user.
 #
 # This only ever copies files INTO ~/.local/bin, ~/.local/share/applications,
-# ~/.local/share/icons, and ~/.local/share/cinnamon-presets/helpers — it
+# ~/.local/share/icons, and ~/.local/share/cinnamon-presets/helpers -- it
 # never touches ~/.config/cinnamon-presets, which is where your saved
 # presets live. Reinstalling/upgrading is always safe for your presets.
 #
@@ -27,7 +27,7 @@ mkdir -p "$BIN_DIR" "$APPS_DIR" "$ICON_DIR" "$HELPERS_DIR" "$CATEGORY_ICONS_DIR"
 if [[ -d "$SCRIPT_DIR/.git" ]]; then
     # Git checkout: symlink instead of copy, so the installed app IS this
     # clone. Self-update (git pull, see perform_git_update() in the app)
-    # resolves __file__ through the symlink back to this real .git dir —
+    # resolves __file__ through the symlink back to this real .git dir --
     # that's what makes it work after install.sh, not just when running
     # straight out of the clone. Keep this clone folder where it is;
     # don't delete/move it after installing, or the app breaks.
@@ -42,7 +42,7 @@ fi
 install -m 644 "$SCRIPT_DIR/icons/cinnamon-presets.svg" "$ICON_DIR/cinnamon-presets.svg"
 install -m 755 "$SCRIPT_DIR"/helpers/*.sh "$HELPERS_DIR/"
 
-# Custom hand-drawn category icons (Save/Export/Apply checklist rows) —
+# Custom hand-drawn category icons (Save/Export/Apply checklist rows) --
 # optional, only copies whatever's actually been drawn so far. See
 # icons/categories/ in the source tree for naming convention.
 if compgen -G "$SCRIPT_DIR/icons/categories/*" > /dev/null 2>&1; then

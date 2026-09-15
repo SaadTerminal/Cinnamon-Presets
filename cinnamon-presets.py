@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-Cinnamon Presets — desktop preset manager for Linux Mint Cinnamon.
+Cinnamon Presets -- desktop preset manager for Linux Mint Cinnamon.
 
 Saves and restores full "look" presets: GTK theme, icon theme, cursor
 theme, cursor size, wallpaper, panel layout/applets, extensions,
-desklets, and sound theme — all in one switchable snapshot, the way
+desklets, and sound theme -- all in one switchable snapshot, the way
 Windows XP handled visual styles. Also supports bundling the actual
 files for any user-installed (non-stock) theme/extension, so a preset
 still works after a fresh install or on another machine, plus
@@ -12,7 +12,7 @@ optional, opt-in snapshotting and restoring of LightDM (login screen),
 Plymouth (boot splash), and GRUB (bootloader). These three are saved
 automatically (read-only, no root needed) whenever you save a preset,
 but applying each one is a separate, deliberate action that asks for
-admin rights on its own — authorizing one never grants access to the
+admin rights on its own -- authorizing one never grants access to the
 other two.
 
 How the desktop part works: Cinnamon keeps almost all of its visual
@@ -22,13 +22,13 @@ explicit allowlist of theme-related keys/directories, one snapshot per
 category (see CATEGORY_DCONF_KEYS/CATEGORY_DCONF_DIRS), plus copies of
 anything those keys merely reference by name (wallpaper image, custom
 themes, custom extensions). Applying a preset writes/resets only those
-specific keys — never the whole tree — restores any bundled
+specific keys -- never the whole tree -- restores any bundled
 theme/extension files, then asks Cinnamon to reload itself. Every step
 is independent, so a failure in one category or one file never blocks
 the rest.
 
 Requires: python3-gi, gir1.2-gtk-3.0, python3-cairo, dconf-cli,
-policykit-1 (pkexec — present by default on Linux Mint Cinnamon).
+policykit-1 (pkexec -- present by default on Linux Mint Cinnamon).
 update-grub / plymouth are part of Mint's default install.
 
 Full version history: see CHANGELOG.md.
@@ -65,53 +65,45 @@ from pathlib import Path
 from urllib.parse import urlparse, unquote
 
 APP_NAME = "Cinnamon Presets"
-VERSION = "BETA-0.18"
+VERSION = "BETA-0.19"
 
-# TODO: My socials and support links.
 GITHUB_REPO_URL = "https://github.com/SaadTerminal/Cinnamon-Presets.git"
 PATREON_URL = ""
 YOUTUBE_URL = ""
 
-# Config/preset storage lives in its own folder, separate from wherever the
-# app itself is installed. Uninstalling/reinstalling the app only touches
-# the installed script + .desktop file + icon — it never touches this
-# folder, so presets survive a reinstall or update.
+# I keep config/preset storage in its own folder, separate from wherever
+# the app itself gets installed. Uninstalling/reinstalling the app only
+# touches the installed script, .desktop file, and icon -- never this
+# folder -- so presets survive a reinstall or update.
 CONFIG_DIR = Path.home() / ".config" / "cinnamon-presets"
 PRESETS_DIR = CONFIG_DIR / "presets"
 DCONF_PATH = "/org/cinnamon/"  # still used by the legacy (pre-allowlist) apply path, see apply_preset()
 
-# Roadmap Phase 8: how often the silent startup check is allowed to run,
-# not the manual "Check Now" button (which always forces an immediate
-# check regardless of this). Stored on disk so the throttle survives
+# How often I let the silent startup check run on its own -- not the
+# manual "Check Now" button, which always forces an immediate check
+# regardless of this. I store the throttle on disk so it survives
 # between app launches, not just within one running session.
 UPDATE_CHECK_STATE_FILE = CONFIG_DIR / "update_check_state.json"
-UPDATE_CHECK_INTERVAL_SECONDS = 6 * 60 * 60  # roadmap: "every few hours"
+UPDATE_CHECK_INTERVAL_SECONDS = 6 * 60 * 60  # check at most every few hours
 
-# --- BETA-0.17 (Roadmap Phase 9 / Settings Tab addendum) ---------------
-#
 # Install paths, matching install.sh/uninstall.sh exactly (see their own
-# BIN_DIR/APPS_DIR/ICON_DIR/HELPERS_DIR). Uninstall is a native Python
-# reimplementation of uninstall.sh's deletions rather than a call into
-# that script — see uninstall_app()'s docstring for why. Both need to be
-# kept in sync on these same target paths if either ever changes.
+# BIN_DIR/APPS_DIR/ICON_DIR/HELPERS_DIR). I reimplement uninstall.sh's
+# deletions natively in Python rather than shelling out to that script --
+# see uninstall_app()'s docstring for why. Keep both in sync on these
+# same target paths if either ever changes.
 INSTALLED_BIN_PATH = Path.home() / ".local" / "bin" / "cinnamon-presets"
 INSTALLED_DESKTOP_FILE = Path.home() / ".local" / "share" / "applications" / "cinnamon-presets.desktop"
 INSTALLED_ICON_PATH = (
     Path.home() / ".local" / "share" / "icons" / "hicolor" / "128x128" / "apps" / "cinnamon-presets.svg"
 )
-# uninstall.sh only ever rm -rf's the helpers/ subfolder here, missing the
-# icons/categories/ subfolder install.sh also populates -- a small
-# pre-existing gap in uninstall.sh. uninstall_app() below removes this
-# whole directory instead (both subfolders at once), which is the more
-# correct behavior; worth a matching one-line fix in uninstall.sh too.
 INSTALLED_SHARE_DIR = Path.home() / ".local" / "share" / "cinnamon-presets"
 
 # General tab: persisted UI defaults (view mode, thumbnail size, sort
-# order). Deliberately its own small file, not folded into any preset's
-# meta.json or a bigger config blob — App settings vs. saved-look data
-# are different things with different lifecycles (Erase All Data wipes
-# both together only because they happen to share CONFIG_DIR, not
-# because this file is treated specially).
+# order). I keep this as its own small file rather than folding it into
+# a preset's meta.json or a bigger config blob -- app settings and
+# saved-look data are different things with different lifecycles. Erase
+# All Data wipes both together only because they happen to share
+# CONFIG_DIR, not because this file gets special treatment.
 APP_SETTINGS_FILE = CONFIG_DIR / "settings.json"
 DEFAULT_APP_SETTINGS = {
     "default_view_mode": "grid",
@@ -119,32 +111,32 @@ DEFAULT_APP_SETTINGS = {
     "default_sort_mode": "name",
 }
 
-# Diagnostics tab: rotating log file, deliberately under its own logs/
-# subfolder — separate from presets/ so exporting/backing up a look never
-# bundles log noise, and so Erase All Data's effect on logs is just a
-# consequence of sharing CONFIG_DIR, not a special case to reason about.
+# Diagnostics tab: rotating log file, under its own logs/ subfolder --
+# separate from presets/ so exporting or backing up a look never bundles
+# log noise, and so Erase All Data's effect on logs is just a
+# consequence of sharing CONFIG_DIR, not a special case I need to reason
+# about separately.
 LOG_DIR = CONFIG_DIR / "logs"
 LOG_FILE = LOG_DIR / "cinnamon-presets.log"
 
-# Storage tab: low-space warning threshold. Hybrid (percentage capped by
-# a flat ceiling) rather than either alone -- a flat number is
-# unreasonable on a small drive, a pure percentage is misleading on a
-# huge one (90% used on 1TB still leaves 100GB free). Two named
+# Storage tab: low-space warning threshold. I use a percentage capped by
+# a flat ceiling rather than either alone -- a flat number is
+# unreasonable on a small drive, and a pure percentage is misleading on
+# a huge one (90% used on 1TB still leaves 100GB free). Two named
 # constants, easy to retune later.
 LOW_SPACE_PERCENT = 0.10
 LOW_SPACE_CAP_BYTES = 30 * 1024 ** 3
 
-# --- Phase 1: explicit dconf allowlist ---------------------------------
+# --- Explicit dconf allowlist -------------------------------------------
 #
-# BETA-0.4 and earlier did `dconf reset -f /org/cinnamon/` + `dconf load`
-# on the ENTIRE tree. That's not actually safe: /org/cinnamon/ also holds
-# things that have nothing to do with a "theme" — favorite-apps, custom
-# keybindings, panel-edit-mode, etc. — so applying a preset saved weeks
-# ago would silently roll those back to whatever they were at save time,
-# not just change the look.
+# I never reset or load the whole /org/cinnamon/ tree at once -- that
+# tree also holds things that have nothing to do with a "theme":
+# favorite-apps, custom keybindings, panel-edit-mode, and so on. Applying
+# a preset saved weeks ago should never silently roll those back to
+# whatever they were at save time; it should only change the look.
 #
-# Below is an explicit allowlist instead: only these specific keys/dirs
-# are ever read, reset, or written. Two shapes:
+# So below is an explicit allowlist instead: only these specific keys
+# and directories are ever read, reset, or written. Two shapes:
 #   - CATEGORY_DCONF_DIRS: whole directories that are unambiguously one
 #     category and nothing else (background, sound), so a scoped
 #     dump/reset/load on just that directory is safe.
@@ -153,43 +145,37 @@ LOW_SPACE_CAP_BYTES = 30 * 1024 ** 3
 #     gtk-theme, icon-theme, cursor-theme, cursor-size, and font keys all
 #     in one place) or is a single top-level /org/cinnamon/ key
 #     (enabled-applets, enabled-desklets, enabled-extensions, panel-*).
-#     Applying these is a per-key `dconf write`/`dconf reset` — surgical,
-#     never a directory-wide reset — so nothing outside this exact list
+#     Applying these is a per-key `dconf write`/`dconf reset` -- surgical,
+#     never a directory-wide reset -- so nothing outside this exact list
 #     is ever touched.
 #
-# NOTE FOR WHOEVER TESTS THIS NEXT: these key names are standard Cinnamon
-# GSettings paths from public documentation/source, not verified against
-# a live `dconf dump /org/cinnamon/` on an actual Mint machine. Run that
-# dump and diff it against the lists below before relying on this for
-# anything you can't afford to lose — Cinnamon version differences
-# (5.x vs 6.x) could shift a key name slightly. Deliberately NOT
-# included, even though they live in /org/cinnamon/: favorite-apps,
-# custom keybindings, panel-edit-mode (a transient UI mode, not a saved
-# look), and next-applet-id (bookkeeping — overwriting it backwards
-# could collide with an applet instance added since the preset was
-# saved; the exact instance IDs already travel inside enabled-applets
-# itself, which IS in the allowlist).
+# Deliberately NOT included, even though they live in /org/cinnamon/:
+# favorite-apps, custom keybindings, panel-edit-mode (a transient UI
+# mode, not a saved look), and next-applet-id (bookkeeping -- overwriting
+# it backwards could collide with an applet instance added since the
+# preset was saved; the exact instance IDs already travel inside
+# enabled-applets itself, which IS in the allowlist).
 
 CATEGORY_DCONF_DIRS = {
     "wallpaper": ["/org/cinnamon/desktop/background/"],
-    # BETA-0.8 fix: "sounds" was pointed at only desktop/sound/ (which
-    # really just holds the event-sounds master toggle + volume-sound-*).
-    # The actual per-event file mappings (login-file, logout-file,
+    # "sounds" points at both schemas on purpose: desktop/sound/ only
+    # holds the event-sounds master toggle and volume-sound-*, while the
+    # actual per-event file mappings (login-file, logout-file,
     # switch-file, etc.) live in a completely separate schema,
     # org.cinnamon.sounds -> /org/cinnamon/sounds/. Confirmed by reading
-    # Cinnamon Settings' own cs_sound.py rather than guessing again.
+    # Cinnamon Settings' own cs_sound.py.
     "sounds": ["/org/cinnamon/sounds/", "/org/cinnamon/desktop/sound/"],
 }
 
 CATEGORY_DCONF_KEYS = {
-    # BETA-0.6: the Cinnamon shell theme (panel/menu/calendar — labeled
-    # "Desktop" in Cinnamon Settings' Themes page) IS a separate key,
+    # The Cinnamon shell theme (panel/menu/calendar -- labeled "Desktop"
+    # in Cinnamon Settings' Themes page) is its own separate key,
     # confirmed against Mint's own cs_themes.py: Gio.Settings.new
     # ("org.cinnamon.theme") -> key "name". A theme package can (and
     # often does) supply both a gtk-3.0/ folder and a cinnamon/ folder
-    # under the same theme name, which is presumably how the earlier
-    # "piggybacks on gtk-theme" assumption crept in — but they're
-    # independently selectable and independently stored.
+    # under the same theme name, but they're independently selectable
+    # and independently stored -- don't assume the shell theme just
+    # piggybacks on gtk-theme.
     "style": [
         "/org/cinnamon/desktop/interface/gtk-theme",
         "/org/cinnamon/theme/name",
@@ -211,20 +197,18 @@ CATEGORY_DCONF_KEYS = {
     ],
     # No "sounds" entry here on purpose: the actual sound theme key
     # (theme-name) lives inside /org/cinnamon/desktop/sound/, which
-    # CATEGORY_DCONF_DIRS["sounds"] already dumps/loads wholesale — a
-    # separate KEYS entry pointing at desktop/interface/sound-theme was
-    # here before, but that key doesn't exist in the real schema (fixed
-    # BETA-0.8, see bundle_assets()/INTERFACE_KEYS fix in the same
-    # commit for the other half of this bug).
+    # CATEGORY_DCONF_DIRS["sounds"] already dumps/loads wholesale. Don't
+    # add a desktop/interface/sound-theme key here -- that key doesn't
+    # exist in the real schema; see bundle_assets()/INTERFACE_KEYS for
+    # the sound-file side of this.
     "panel": [
         "/org/cinnamon/enabled-applets",
         "/org/cinnamon/panels-enabled",
         "/org/cinnamon/panels-height",
-        "/org/cinnamon/panels-autohide",         # was "panel-autohide" (wrong, no-op)
-        "/org/cinnamon/panels-resizable",        # was "panel-resizable" (wrong, no-op)
-        "/org/cinnamon/panels-scale-text-icons", # was "panel-scale-text-icons" (real key
-                                                  # exists but is deprecated/inert — see
-                                                  # BETA-0.6 changelog note above)
+        "/org/cinnamon/panels-autohide",         # not "panel-autohide" -- that key is a no-op
+        "/org/cinnamon/panels-resizable",        # not "panel-resizable" -- that key is a no-op
+        "/org/cinnamon/panels-scale-text-icons", # not "panel-scale-text-icons" -- that key
+                                                  # exists but is deprecated/inert
         "/org/cinnamon/panel-zone-icon-sizes",
         "/org/cinnamon/panel-zone-text-sizes",
         "/org/cinnamon/panel-zone-symbolic-icon-sizes",
@@ -236,10 +220,10 @@ CATEGORY_DCONF_KEYS = {
     ],
 }
 
-# All 8 dconf-backed categories (the other 3 from the design mockups —
-# Profile Picture, Lock Screen, Boot Animation, GRUB — aren't dconf at
-# all: Profile Picture is AccountsService, the other two are the
-# existing LightDM/Plymouth/GRUB root-gated flow).
+# All 8 dconf-backed categories. Three more categories exist outside
+# this list -- Profile Picture, Lock Screen, Boot Animation, GRUB -- but
+# they aren't dconf at all: Profile Picture is AccountsService, and the
+# other two are the LightDM/Plymouth/GRUB root-gated flow.
 DCONF_CATEGORIES = ["style", "cursor", "icons", "fonts", "sounds", "wallpaper", "panel", "widgets"]
 
 CATEGORY_LABELS = {
@@ -248,11 +232,10 @@ CATEGORY_LABELS = {
     "widgets": "Widgets",
 }
 
-# Phase 1 item 3: which of the three addon buckets maps to which visual
-# category — matches the roadmap 1:1 (extensions -> Style,
-# applets -> Panel Modifications, desklets -> Widgets). bundle_addons()
-# already keys its result by these three kinds; this mapping is what
-# later phases (per-category apply/export checklists) will key off of.
+# Which of the three addon buckets maps to which visual category:
+# extensions -> Style, applets -> Panel Modifications, desklets ->
+# Widgets. bundle_addons() already keys its result by these three
+# kinds; the per-category apply/export checklists key off this mapping.
 ADDON_KIND_TO_CATEGORY = {
     "extensions": "style",
     "applets": "panel",
@@ -260,14 +243,14 @@ ADDON_KIND_TO_CATEGORY = {
 }
 
 # ---------------------------------------------------------------------------
-# Phase 3: per-category status tracking
+# Per-category status tracking
 #
 # The 8 DCONF_CATEGORIES above are the dconf-backed subset. The full 11-item
-# checklist from the design mockups also includes 3 non-dconf categories
-# already implemented under other names (lightdm/plymouth/grub) plus one
-# that ISN'T implemented at all yet (profile_picture — no AccountsService
+# checklist also includes 3 non-dconf categories already implemented under
+# other names (lightdm/plymouth/grub) plus one that ISN'T implemented at
+# all yet (profile_picture -- no AccountsService
 # code exists anywhere in this file). CATEGORY_ORDER is every category the
-# UI will ever show, in the mockup's own order; CATEGORY_UI_LABELS is the
+# UI will ever show, in this fixed order; CATEGORY_UI_LABELS is the
 # matching display name for each.
 # ---------------------------------------------------------------------------
 
@@ -283,22 +266,20 @@ CATEGORY_UI_LABELS = {
     "lightdm": "Lock Screen", "plymouth": "Boot Animation", "grub": "GRUB Bootloader",
 }
 
-# Phase 5: the 9 categories apply_preset() actually handles without root —
+# The 9 categories apply_preset() actually handles without root --
 # everything except the 3 boot-level items, which each get their own
-# separately-authorized section/pkexec call in ApplyPresetDialog. This is
-# CATEGORY_ORDER with lightdm/plymouth/grub excluded, kept as an explicit
-# list (rather than filtering CATEGORY_ORDER at every use site) so it's
-# one obvious place to look if that split ever needs to change.
+# separately-authorized section/pkexec call in ApplyPresetDialog. I keep
+# this as an explicit list (rather than filtering CATEGORY_ORDER at every
+# use site) so it's one obvious place to look if that split ever needs
+# to change.
 THEME_CATEGORIES = [c for c in CATEGORY_ORDER if c not in ("lightdm", "plymouth", "grub")]
 
-# Phase 4: the checklist body text under each category name, reused
-# verbatim across Save/Export/Apply per the roadmap's "same visual
-# language everywhere" design goal. Adapted from the design mockups, with
-# two deliberate corrections against what's actually implemented: the
-# mockup's "Panel Modifications" description mentions desklets, but
-# desklets are their own category (Widgets, via ADDON_KIND_TO_CATEGORY) —
-# repeating them under Panel too would misdescribe what unchecking either
-# box actually does.
+# The checklist body text under each category name, reused verbatim
+# across Save/Export/Apply so it reads as the same visual language
+# everywhere. Note that "Panel Modifications" doesn't mention desklets --
+# desklets are their own category (Widgets, via ADDON_KIND_TO_CATEGORY),
+# and repeating them under Panel too would misdescribe what unchecking
+# either box actually does.
 CATEGORY_DESCRIPTIONS = {
     "style": "The core theme design, color scheme and extensions.",
     "cursor": "The mouse cursor.",
@@ -314,21 +295,21 @@ CATEGORY_DESCRIPTIONS = {
     "grub": "Your GRUB bootloader configuration and theme.",
 }
 
-# Status values a category can have. "skipped_on_purpose" is produced by
-# Phase 4's Save wizard checklist: unchecking a category makes
-# save_preset() skip capturing it entirely and mark it this way, rather
-# than it looking indistinguishable from "error" or silently absent.
-# "not_implemented" is specifically for profile_picture before it existed
-# — kept in the enum for older presets saved against that version.
+# Status values a category can have. "skipped_on_purpose" comes from the
+# Save wizard checklist: unchecking a category makes save_preset() skip
+# capturing it entirely and mark it this way, rather than it looking
+# indistinguishable from "error" or silently absent. "not_implemented" is
+# specifically for profile_picture before it existed -- kept in the enum
+# for older presets saved against that version.
 CATEGORY_STATUSES = ("present", "skipped_on_purpose", "not_applicable", "not_implemented", "error")
 
 
 def _dconf_category_status(meta, category):
     """A dconf category's _dump_category() result always has one "keys"
     entry per allowlisted key (even if the value is None/unset) and one
-    "dirs" entry per allowlisted directory — UNLESS the whole dump call
+    "dirs" entry per allowlisted directory -- UNLESS the whole dump call
     threw and _safe() fell back to the empty {"keys": {}, "dirs": {}}
-    default, OR the category was deliberately left out of a Phase 4 save
+    default, OR the category was deliberately left out of the save
     (marked with "skipped_on_purpose" instead of ever calling
     _dump_category at all). So an entirely empty dict with no skip marker
     is the tell for "the save step itself failed", not "nothing was set"
@@ -396,7 +377,7 @@ def compute_category_statuses(meta):
 
 def _normalize_meta(name, meta):
     """Fill in defaults for fields that didn't exist in older meta.json
-    versions, without rewriting the file on disk — a read-time
+    versions, without rewriting the file on disk -- a read-time
     normalization, same philosophy as apply_preset()'s legacy-format
     fallback: old presets keep working, they just don't retroactively
     gain data that was never captured."""
@@ -409,22 +390,20 @@ def _normalize_meta(name, meta):
         meta["categories"] = compute_category_statuses(meta)
     return meta
 
-# BETA-0.8: "sound" used to be in here too, on the assumption Cinnamon
-# picks one active "sound theme" the same way it picks one gtk-theme/
-# icon-theme/cursor-theme. That assumption was wrong on two separate
-# guesses in a row -- Cinnamon doesn't have a single sound theme concept
-# at all. Confirmed via cs_sound.py: it's ~12 independent per-event
+# Cinnamon doesn't have a single "sound theme" concept the way it has one
+# gtk-theme/icon-theme/cursor-theme, so "sound" doesn't belong in this
+# dict. Confirmed via cs_sound.py: it's ~12 independent per-event
 # key->filepath mappings (login-file, logout-file, switch-file, ...)
 # under schema org.cinnamon.sounds, plus one more (volume-sound-file)
 # under org.cinnamon.desktop.sound. No "pick the active theme folder"
-# step applies here, so it doesn't belong in this dict or in
-# bundle_assets()/restore_assets() at all -- see _bundle_sound_files_in_dump
-# / _restore_sound_files_in_dump below for the real mechanism, which
-# mirrors how wallpaper already bundles+rewrites a single file path,
-# just run once per event key instead of once.
+# step applies here, so it doesn't belong in bundle_assets()/
+# restore_assets() either -- see _bundle_sound_files_in_dump /
+# _restore_sound_files_in_dump below for the real mechanism, which
+# mirrors how wallpaper bundles and rewrites a single file path, just
+# run once per event key instead of once.
 INTERFACE_KEYS = {
     "gtk": "/org/cinnamon/desktop/interface/gtk-theme",
-    "cinnamon": "/org/cinnamon/theme/name",  # BETA-0.6: the actual shell theme, see above
+    "cinnamon": "/org/cinnamon/theme/name",  # the actual shell theme, see above
     "icon": "/org/cinnamon/desktop/interface/icon-theme",
     "cursor": "/org/cinnamon/desktop/interface/cursor-theme",
 }
@@ -435,8 +414,8 @@ ADDON_KINDS = {
     "desklets": "/org/cinnamon/enabled-desklets",
 }
 
-# Phase 4: which UI category owns each bundle_assets() kind — mirrors
-# ADDON_KIND_TO_CATEGORY below, used the same way: the Save wizard's
+# Which UI category owns each bundle_assets() kind -- mirrors
+# ADDON_KIND_TO_CATEGORY above, used the same way: the Save wizard's
 # per-category checklist filters bundle_assets()'s kinds through this so
 # unchecking "Icons" also skips bundling the icon theme's files, not just
 # the icon-theme dconf key.
@@ -449,31 +428,29 @@ ASSET_KIND_TO_CATEGORY = {
 
 LIGHTDM_CONF = Path("/etc/lightdm/slick-greeter.conf")
 GRUB_DEFAULT = Path("/etc/default/grub")
-# Matches the backup naming convention apply-grub.sh already used from
-# BETA-0.3 onward (cp -a "$DEST" "$DEST.cinnamon-presets-backup" before
-# every overwrite) -- Phase 7 builds a Restore action on top of a backup
-# file that already existed, not a new one. apply-lightdm.sh has used the
-# identical convention since the same phase.
+# apply-grub.sh backs up the live config before every overwrite
+# (cp -a "$DEST" "$DEST.cinnamon-presets-backup"), and Restore acts on
+# that same backup file. apply-lightdm.sh uses the identical convention.
 GRUB_BACKUP_PATH = Path("/etc/default/grub.cinnamon-presets-backup")
 LIGHTDM_BACKUP_PATH = Path("/etc/lightdm/slick-greeter.conf.cinnamon-presets-backup")
 
 # Plymouth has no single config file to snapshot the way GRUB/LightDM
-# do -- its "current state" is just which theme is active. BETA-0.17
-# resolves this without touching apply-plymouth.sh at all: right before
-# an Apply Boot Animation actually changes the theme,
+# do -- its "current state" is just which theme is active. I handle
+# that without touching apply-plymouth.sh at all: right before an Apply
+# Boot Animation actually changes the theme,
 # _record_plymouth_previous_theme() reads whatever theme is currently
 # active (a plain unprivileged read, same call save_plymouth() already
 # uses) and stashes it here, so Restore has something to undo back to.
 PLYMOUTH_PREVIOUS_STATE_FILE = CONFIG_DIR / "plymouth_previous_theme.json"
 
 # Per-instance applet settings (e.g. a Weather applet's chosen city) are
-# NOT part of the /org/cinnamon/ dconf tree — Cinnamon stores those as
+# NOT part of the /org/cinnamon/ dconf tree -- Cinnamon stores those as
 # JSON files here instead, one folder per applet uuid.
 APPLET_CONFIG_DIR = Path.home() / ".cinnamon" / "configs"
 
 
 # ---------------------------------------------------------------------------
-# Core logic (no GTK here — kept separate so it can be tested/reused on its
+# Core logic (no GTK here -- kept separate so it can be tested/reused on its
 # own, e.g. from a CLI, without needing a display).
 # ---------------------------------------------------------------------------
 
@@ -481,14 +458,14 @@ def ensure_dirs():
     PRESETS_DIR.mkdir(parents=True, exist_ok=True)
 
 
-# --- BETA-0.17: logging (Roadmap Addendum: Diagnostics) --------------------
+# --- Logging -------------------------------------------------------------
 #
-# Nothing like this existed before -- failures only ever showed up in a
-# one-time dialog and then vanished, a real gap given how much of this app
-# is pkexec/root system changes. Logs actions and results, not full file
-# contents (e.g. "applied LightDM config" plus its stdout/stderr, never
-# the actual contents of slick-greeter.conf) -- useful for troubleshooting
-# without becoming an accidental dump of configuration details.
+# Worth having given how much of this app is pkexec/root system changes --
+# a failure shouldn't just flash in a one-time dialog and vanish. I log
+# actions and results, not full file contents (e.g. "applied LightDM
+# config" plus its stdout/stderr, never the actual contents of
+# slick-greeter.conf) -- useful for troubleshooting without becoming an
+# accidental dump of configuration details.
 
 logger = logging.getLogger("cinnamon-presets")
 logger.setLevel(logging.INFO)
@@ -521,9 +498,9 @@ def setup_logging():
 
 
 def get_diagnostic_info():
-    """Roadmap Addendum: 'Copy Diagnostic Info' one-click. Version plus
-    the tail of the current log file -- cheap now that logging exists,
-    meant to lower the friction of filing a good bug report."""
+    """Backs the 'Copy Diagnostic Info' one-click button. Version plus
+    the tail of the current log file -- cheap, meant to lower the
+    friction of filing a good bug report."""
     lines = [f"{APP_NAME} {VERSION}"]
     try:
         if LOG_FILE.is_file():
@@ -538,7 +515,7 @@ def get_diagnostic_info():
     return "\n".join(lines)
 
 
-# --- BETA-0.17: General tab — persisted UI defaults -------------------------
+# --- General tab -- persisted UI defaults --------------------------------
 
 def load_app_settings():
     if APP_SETTINGS_FILE.is_file():
@@ -560,11 +537,11 @@ def save_app_settings(settings):
         logger.warning(f"Couldn't save app settings: {e}")
 
 
-# --- BETA-0.17: Storage tab — disk usage -----------------------------------
+# --- Storage tab -- disk usage --------------------------------------------
 
 def _dir_size_bytes(path):
     """Simple recursive size sum -- matches what a file manager shows,
-    not du-style block-accurate, needs no subprocess call."""
+    not du-style block-accurate, and needs no subprocess call."""
     total = 0
     for root, _dirs, files in os.walk(path):
         for name in files:
@@ -591,7 +568,7 @@ def _find_mount_point(path):
 
 def get_storage_info():
     """Apparent disk usage of CONFIG_DIR (everything this app has ever
-    written under its own folder — presets, settings, logs, update-check
+    written under its own folder -- presets, settings, logs, update-check
     state), plus which disk it's actually on and how full that disk is."""
     base = CONFIG_DIR if CONFIG_DIR.is_dir() else Path.home()
     app_bytes = _dir_size_bytes(CONFIG_DIR) if CONFIG_DIR.is_dir() else 0
@@ -618,7 +595,7 @@ def format_bytes(n):
         n /= 1024
 
 
-# --- BETA-0.17: Storage tab — Danger Zone -----------------------------------
+# --- Storage tab -- Danger Zone --------------------------------------------
 
 def erase_all_data():
     """Deletes ~/.config/cinnamon-presets ONLY -- presets, settings,
@@ -634,7 +611,7 @@ def erase_all_data():
 
 def uninstall_app(purge=False):
     """Native Python reimplementation of uninstall.sh's own deletions,
-    not a call into that script — uninstall.sh lives wherever the repo
+    not a call into that script -- uninstall.sh lives wherever the repo
     was cloned into, not copied anywhere persistent the way the helper
     scripts are, so it may well be gone by the time someone clicks an
     in-app Uninstall button. Must be kept in sync with uninstall.sh on
@@ -645,10 +622,10 @@ def uninstall_app(purge=False):
     Never touches ~/.config/cinnamon-presets.
 
     purge=True: also removes ~/.config/cinnamon-presets (presets,
-    settings, logs — everything Erase All Data would).
+    settings, logs -- everything Erase All Data would).
 
     Never touches home-directory theme folders or root-owned system
-    paths, under either option — same scope as erase_all_data(). Safe to
+    paths, under either option -- same scope as erase_all_data(). Safe to
     call while running: deleting a running script/binary on Linux is
     fine, the process keeps running off its inode until it exits."""
     removed = []
@@ -738,7 +715,7 @@ def _rewrite_wallpaper_uri(dump_text, new_uri):
 
 def _rewrite_wallpaper_in_dir_dump(dump_text, new_uri):
     """Same idea as _rewrite_wallpaper_uri, but for a dump taken directly
-    of /org/cinnamon/desktop/background/ (the new per-category format) —
+    of /org/cinnamon/desktop/background/ (the new per-category format) --
     picture-uri there sits under the root '[/]' section instead of a
     '[desktop/background]' subsection, since that directory itself is
     the dump's base path."""
@@ -758,18 +735,18 @@ def _rewrite_wallpaper_in_dir_dump(dump_text, new_uri):
     return "\n".join(out) + "\n"
 
 
-# --- Phase 1: per-category dconf save/apply ---------------------------
+# --- Per-category dconf save/apply ---------------------------------------
 #
-# Replaces the old single whole-tree dump/reset/load. Each category is
-# read, reset, and written independently — see the CATEGORY_DCONF_*
-# allowlist comment above for why. Deliberately no `reset -f` on any
-# multi-purpose directory: directory dumps only happen for wallpaper/
-# sounds, which are single-purpose directories; everything else goes
-# through individual `dconf write`/`dconf reset` calls on named keys.
+# Each category is read, reset, and written independently -- see the
+# CATEGORY_DCONF_* allowlist comment above for why. Deliberately no
+# `reset -f` on any multi-purpose directory: directory dumps only happen
+# for wallpaper/sounds, which are single-purpose directories; everything
+# else goes through individual `dconf write`/`dconf reset` calls on
+# named keys.
 
 def _dump_category(category):
     """Read this category's allowlisted keys/dirs off the live system.
-    Never raises on an individual key/dir read failure — that key is
+    Never raises on an individual key/dir read failure -- that key is
     just recorded as unset, since a missing value shouldn't cost the
     rest of the category."""
     entry = {"keys": {}, "dirs": {}}
@@ -801,7 +778,7 @@ def _apply_category(category, entry):
                 if r.returncode != 0:
                     errors.append(f"{key}: {r.stderr.strip() or 'write failed'}")
             else:
-                # Wasn't set (at default) when saved — reset just this
+                # Wasn't set (at default) when saved -- reset just this
                 # one key back to default too, so switching presets is
                 # still deterministic without touching anything else in
                 # the directory it lives in.
@@ -834,7 +811,7 @@ def _asset_search_dirs(kind, name):
     if kind in ("gtk", "cinnamon"):
         # Same theme-package folders for both: a package that supplies a
         # Cinnamon shell theme puts it in <theme>/cinnamon/ right next to
-        # <theme>/gtk-3.0/, under the same top-level theme name — whether
+        # <theme>/gtk-3.0/, under the same top-level theme name -- whether
         # or not the two keys are actually set to the same name.
         return [home / ".themes" / name, home / ".local/share/themes" / name,
                 Path("/usr/share/themes") / name]
@@ -892,7 +869,7 @@ def _clear_dir(path):
     right before repopulating a bundle destination, so a fresh save
     reflects only what's currently active instead of accumulating every
     theme/addon/GRUB-theme that was ever active across this preset's
-    save history — dirs_exist_ok=True on its own only ever merges in,
+    save history -- dirs_exist_ok=True on its own only ever merges in,
     never removes what's no longer relevant. Safe to call on a path that
     doesn't exist yet."""
     if path.is_dir():
@@ -902,11 +879,10 @@ def _clear_dir(path):
 def bundle_assets(preset_dir, kinds=None):
     """Save the *name* of each theme (already captured by the dconf dump
     too) plus, for any user-installed custom theme, the actual files.
-    kinds optionally restricts which of INTERFACE_KEYS to process --
-    Phase 4's Save wizard checklist uses this so unchecking a category
-    (e.g. Icons) skips bundling its files too, not just its dconf key.
-    Defaults to every kind, matching pre-Phase-4 behavior for any other
-    caller."""
+    kinds optionally restricts which of INTERFACE_KEYS to process -- the
+    Save wizard checklist uses this so unchecking a category (e.g.
+    Icons) skips bundling its files too, not just its dconf key.
+    Defaults to every kind for any other caller."""
     result = {}
     selected_kinds = INTERFACE_KEYS.keys() if kinds is None else kinds
     for kind in selected_kinds:
@@ -958,7 +934,7 @@ def restore_assets(preset_dir, assets_meta):
 
 # --- Sound event files -------------------------------------------------------
 #
-# BETA-0.8: Cinnamon has no single "sound theme" -- it's ~12 independent
+# Cinnamon has no single "sound theme" -- it's ~12 independent
 # per-event key->filepath mappings (org.cinnamon.sounds: login-file,
 # logout-file, switch-file, map-file, close-file, minimize-file,
 # maximize-file, unmaximize-file, tile-file, plug-file, unplug-file,
@@ -1160,8 +1136,7 @@ def save_lightdm(preset_dir):
 
     # slick-greeter's theme-name/icon-theme-name/cursor-theme-name are
     # its OWN separate theme selection for the login/lock screen --
-    # commonly, but not always, the same as the desktop session's. Never
-    # bundled before this: only `background` was ever inspected here.
+    # commonly, but not always, the same as the desktop session's.
     # LightDM runs as its own system user before any session exists, so
     # these have to live somewhere world-readable (never a regular
     # user's own ~/.themes) -- but a custom one manually installed under
@@ -1233,7 +1208,7 @@ def _plymouth_current_theme():
     3. Reading /etc/alternatives/default.plymouth or
        /etc/plymouth/plymouthd.conf directly
 
-    Returns None if every unprivileged method comes up empty — the
+    Returns None if every unprivileged method comes up empty -- the
     caller can then decide whether to offer a one-time admin-rights
     retry via save_plymouth_with_root().
     """
@@ -1301,8 +1276,8 @@ def save_plymouth(preset_dir):
 def save_plymouth_with_root(preset_dir):
     """Last-resort, opt-in fallback when every unprivileged detection
     method in _plymouth_current_theme() comes up empty. Runs one narrow,
-    read-only pkexec helper that only reports the current theme name —
-    it never writes anything — then bundles it exactly like save_plymouth()
+    read-only pkexec helper that only reports the current theme name --
+    it never writes anything -- then bundles it exactly like save_plymouth()
     would have. This is its own separate authorization, only triggered
     when the user agrees to it, and grants nothing beyond this one call:
     no credentials are cached, so saving again later asks again."""
@@ -1424,14 +1399,14 @@ def apply_profile_picture(preset_dir, meta):
 
 def _safe(fn, *args, default=None):
     """Run a best-effort save/bundle step and never let it take the rest
-    of the preset save down with it. Before BETA-0.4, an unexpected error
-    in any one step (e.g. a permissions quirk, or the new panel-layout
-    bundling hitting an unreadable applet config folder) raised out of
-    save_preset() entirely — since meta.json is only written at the very
-    end, that silently discarded EVERYTHING already gathered in that
-    save, including the wallpaper and theme/addon bundling that had
-    already succeeded. Now each step's failure is recorded against just
-    that step, and the rest of the preset still gets saved."""
+    of the preset save down with it. An unexpected error in any one step
+    (e.g. a permissions quirk, or panel-layout bundling hitting an
+    unreadable applet config folder) should never raise out of
+    save_preset() entirely -- since meta.json is only written at the very
+    end, that would silently discard EVERYTHING already gathered in that
+    save, including wallpaper and theme/addon bundling that had already
+    succeeded. Each step's failure is recorded against just that step,
+    and the rest of the preset still gets saved."""
     try:
         return fn(*args)
     except Exception as e:
@@ -1441,7 +1416,7 @@ def _safe(fn, *args, default=None):
 # --- Panel layout: applet placement + per-applet settings ------------------
 #
 # Applet/panel placement (which panel, zone, order) lives in the
-# enabled-applets key and various panel-* keys, all under /org/cinnamon/ —
+# enabled-applets key and various panel-* keys, all under /org/cinnamon/ --
 # so the full `dconf dump` already captures and restores that, no extra
 # work needed. What it does NOT capture is each applet's own settings
 # (e.g. a Weather applet's chosen city, a Menu applet's chosen icon):
@@ -1502,7 +1477,7 @@ def restore_panel_layout(preset_dir, panel_meta):
 # --- Per-app icon/launcher overrides ----------------------------------------
 #
 # Changing an individual app's icon (right-click a menu entry → "Edit
-# properties", or the menu editor) doesn't touch dconf at all — Cinnamon
+# properties", or the menu editor) doesn't touch dconf at all -- Cinnamon
 # writes a modified copy of that app's .desktop file to
 # ~/.local/share/applications/, overriding the system one in
 # /usr/share/applications/ without changing it. Since the dconf dump never
@@ -1568,7 +1543,7 @@ def restore_desktop_overrides(preset_dir, meta_entry):
         if not (src.is_file() and orig):
             continue
         orig_path = Path(orig)
-        # Only ever restore inside the user's own home directory — this
+        # Only ever restore inside the user's own home directory -- this
         # runs with no root, and a system-owned icon path shouldn't need
         # restoring anyway (it wasn't the user's custom file).
         try:
@@ -1598,7 +1573,7 @@ def restore_desktop_overrides(preset_dir, meta_entry):
 
 def _run_pkexec_helper(cmd, action_label):
     """Runs one pkexec helper script and logs its stdout/stderr either
-    way — exactly the detail needed to answer "why did GRUB apply fail"
+    way -- exactly the detail needed to answer "why did GRUB apply fail"
     after the fact, which used to only ever show up once in a dialog and
     then vanish. Every pkexec call site in this app goes through this
     now instead of duplicating the same run-then-check pattern."""
@@ -1630,7 +1605,7 @@ def apply_lightdm(preset_dir, meta):
     # reinstalling to /usr/share/{themes,icons}/<name>/ or the greeter
     # just silently falls back to a default the moment the original
     # system-wide copy is gone. Passed positionally, in a fixed order,
-    # rather than as JSON — keeps the helper script plain bash with no
+    # rather than as JSON -- keeps the helper script plain bash with no
     # parsing dependency. Empty string means "not bundled" (either
     # nothing set, or find_asset_dir judged it package-managed already).
     asset_args = []
@@ -1689,12 +1664,12 @@ def grub_backup_exists():
 
 
 def restore_grub_backup():
-    """Roadmap Phase 7: restores /etc/default/grub from the backup
-    apply-grub.sh already creates before every overwrite, then reruns
-    update-grub. Not tied to any one preset -- this undoes whatever this
-    app's own most recent GRUB apply did, regardless of which preset
-    that was, the same way a person would expect an "undo" to work
-    rather than needing to remember which preset they applied last."""
+    """Restores /etc/default/grub from the backup apply-grub.sh already
+    creates before every overwrite, then reruns update-grub. Not tied to
+    any one preset -- this undoes whatever this app's own most recent
+    GRUB apply did, regardless of which preset that was, the same way a
+    person would expect an "undo" to work rather than needing to
+    remember which preset they applied last."""
     if not grub_backup_exists():
         raise FileNotFoundError("No GRUB backup found — nothing to restore.")
     helper = _helpers_dir() / "restore-grub.sh"
@@ -1708,10 +1683,10 @@ def lightdm_backup_exists():
 
 
 def restore_lightdm_backup():
-    """BETA-0.17 (Roadmap Addendum: Backups, b-lite). Restores
-    /etc/lightdm/slick-greeter.conf from the backup apply-lightdm.sh
-    already creates before every overwrite -- same "undo the app's own
-    last change, not tied to one preset" model as restore_grub_backup()."""
+    """Restores /etc/lightdm/slick-greeter.conf from the backup
+    apply-lightdm.sh already creates before every overwrite -- same
+    "undo the app's own last change, not tied to one preset" model as
+    restore_grub_backup()."""
     if not lightdm_backup_exists():
         raise FileNotFoundError("No LightDM backup found — nothing to restore.")
     helper = _helpers_dir() / "restore-lightdm.sh"
@@ -1742,14 +1717,12 @@ def plymouth_backup_exists():
 
 
 def restore_plymouth_backup():
-    """BETA-0.17 (Roadmap Addendum: Backups, b-lite — this is the "open
-    technical question" the addendum flagged). Plymouth has no single
-    config file to snapshot, so "restore" means re-applying whichever
-    theme _record_plymouth_previous_theme() last saw active, through the
-    exact same apply-plymouth.sh path a normal apply uses (with no
-    bundle dir, since the theme in question is necessarily already
-    installed -- it was the live theme a moment ago). This needed no
-    changes to apply-plymouth.sh at all."""
+    """Plymouth has no single config file to snapshot, so "restore"
+    means re-applying whichever theme _record_plymouth_previous_theme()
+    last saw active, through the exact same apply-plymouth.sh path a
+    normal apply uses (with no bundle dir, since the theme in question
+    is necessarily already installed -- it was the live theme a moment
+    ago). This needs no changes to apply-plymouth.sh at all."""
     if not plymouth_backup_exists():
         raise FileNotFoundError("No previous Plymouth theme recorded — nothing to restore.")
     data = json.loads(PLYMOUTH_PREVIOUS_STATE_FILE.read_text())
@@ -1777,22 +1750,23 @@ def load_meta(name):
     return _normalize_meta(name, {})
 
 
-# --- BETA-0.17: preset migration -------------------------------------------
+# --- Preset migration -----------------------------------------------------
 #
 # _normalize_meta() above already backfills missing fields on every read,
-# but it's read-time-only and never persists — a preset saved a few
+# but it's read-time-only and never persists -- a preset saved a few
 # versions back keeps paying that normalization cost forever, and more
-# importantly, a *legacy* preset (the pre-Phase-1 whole-tree cinnamon.dconf
-# format) has no per-category data for _normalize_meta to backfill from at
-# all, so it's permanently stuck on apply_preset()'s less-safe legacy
-# whole-tree fallback path — even though nothing about that desktop look
-# actually needs re-capturing from a live system to fix that.
+# importantly, a *legacy* preset (the pre-allowlist whole-tree
+# cinnamon.dconf format) has no per-category data for _normalize_meta to
+# backfill from at all, so it's permanently stuck on apply_preset()'s
+# less-safe legacy whole-tree fallback path -- even though nothing about
+# that desktop look actually needs re-capturing from a live system to
+# fix that.
 #
 # migrate_preset() closes that gap: it reparses an old whole-tree dconf
 # dump directly into the same per-category shape _dump_category() would
 # have produced, using the exact same CATEGORY_DCONF_KEYS/DIRS allowlist,
 # and writes the result back to meta.json once. No live desktop state is
-# read or required — this works even if the current desktop looks nothing
+# read or required -- this works even if the current desktop looks nothing
 # like the preset being migrated.
 
 SCHEMA_VERSION = 2
@@ -1802,7 +1776,7 @@ def _parse_legacy_dconf_dump(dump_text):
     """Parses a legacy whole-tree `dconf dump /org/cinnamon/` INI-style
     dump into the same {"keys": {...}, "dirs": {...}} per-category shape
     _dump_category() produces from a live system. Pure text parsing, no
-    dconf calls — this is what lets a legacy preset be upgraded without
+    dconf calls -- this is what lets a legacy preset be upgraded without
     needing the live desktop to currently match it."""
     sections = {}
     current = None
@@ -1844,7 +1818,7 @@ def _parse_legacy_dconf_dump(dump_text):
 
 
 def migrate_preset(name):
-    """Upgrades one preset's meta.json in place, once. Idempotent — a
+    """Upgrades one preset's meta.json in place, once. Idempotent -- a
     preset already at SCHEMA_VERSION is a no-op. Returns True if anything
     was actually rewritten, False if it was already current."""
     preset_dir = PRESETS_DIR / name
@@ -1861,7 +1835,7 @@ def migrate_preset(name):
         try:
             meta["dconf"] = _parse_legacy_dconf_dump(legacy_dump.read_text())
         except Exception as e:
-            # A parse hiccup shouldn't block the rest of the migration —
+            # A parse hiccup shouldn't block the rest of the migration --
             # worst case, this preset just keeps using the legacy
             # whole-tree apply path for dconf specifically, same as
             # before this ever ran.
@@ -1875,7 +1849,7 @@ def migrate_preset(name):
 
 def migrate_all_presets():
     """Runs migrate_preset() over every saved preset. Called once at
-    startup — cheap (near-instant no-op) for anything already current, so
+    startup -- cheap (near-instant no-op) for anything already current, so
     nobody has to think about this; see Settings > Diagnostics for a
     manual re-run. Returns {name: True/False/"error: ..."}."""
     results = {}
@@ -1888,11 +1862,11 @@ def migrate_all_presets():
 
 
 def save_preset(name, description="", selected_categories=None):
-    """selected_categories: optional {category_key: bool}, from Phase 4's
-    Save wizard checklist. Any category not present in the dict defaults
-    to True, so every pre-Phase-4 caller (and the dict-less default of
-    None) keeps saving everything, same as before this parameter existed.
-    An explicitly unchecked category is never captured at all -- no dconf
+    """selected_categories: optional {category_key: bool}, from the Save
+    wizard checklist. Any category not present in the dict defaults to
+    True, so a caller that doesn't pass this (or passes None) still
+    saves everything. An explicitly unchecked category is never
+    captured at all -- no dconf
     dump, no asset/addon bundling, no boot-item save call -- and is
     marked "skipped_on_purpose" (see compute_category_statuses) instead
     of coming out looking like a failed capture."""
@@ -1911,10 +1885,10 @@ def save_preset(name, description="", selected_categories=None):
     meta["description"] = description or ""
     meta["saved_at"] = datetime.now(timezone.utc).isoformat()
 
-    # Phase 1: per-category dconf snapshot, not a whole-tree dump. See the
+    # Per-category dconf snapshot, not a whole-tree dump. See the
     # CATEGORY_DCONF_* allowlist comment near the top of the file for why.
-    # Each category is isolated with _safe() same as everything else here.
-    # Phase 4: a category the wizard checklist left unchecked never gets
+    # Each category is isolated with _safe() same as everything else
+    # here. A category the wizard checklist left unchecked never gets
     # its _dump_category() call made at all -- skipped outright, not
     # captured-then-discarded.
     meta["dconf"] = {}
@@ -1924,7 +1898,7 @@ def save_preset(name, description="", selected_categories=None):
         else:
             meta["dconf"][cat] = {"keys": {}, "dirs": {}, "skipped_on_purpose": True}
 
-    # BETA-0.8: bundle the actual audio files each sound-event key points
+    # Bundle the actual audio files each sound-event key points
     # to (see the "Sound event files" section above for why this can't
     # just be part of bundle_assets() like GTK/icon/cursor). Uses the
     # dump text just captured above, so it has to run right after it.
@@ -1968,7 +1942,7 @@ def save_preset(name, description="", selected_categories=None):
     else:
         meta["wallpaper"] = {"status": "skipped_on_purpose"}
 
-    # Everything below is best-effort and read-only on the local system —
+    # Everything below is best-effort and read-only on the local system --
     # no root needed for any of it, even the LightDM/Plymouth/GRUB parts.
     # Each step is isolated with _safe() so one failing (e.g. a locked
     # applet config file) can't cost us the others. asset_kinds/addon_kinds
@@ -1995,24 +1969,24 @@ def save_preset(name, description="", selected_categories=None):
         if _sel("profile_picture") else {"status": "skipped_on_purpose"}
     )
 
-    # Phase 2: no screenshot is captured as part of save_preset() itself —
+    # No screenshot is captured as part of save_preset() itself --
     # capture is its own separate, hide/countdown/review flow that only
     # makes sense once the app window (and Gtk.main loop) already exists.
-    # Phase 4 made it mandatory and moved it into the Save wizard itself
-    # (SavePresetWizard), which calls save_screenshot() + patches this key
-    # in right after save_preset() returns. This just guarantees every
-    # meta.json has a "screenshot" field to check even if that follow-up
-    # step somehow never ran.
+    # It's mandatory and lives in the Save wizard itself (SavePresetWizard),
+    # which calls save_screenshot() + patches this key in right after
+    # save_preset() returns. This just guarantees every meta.json has a
+    # "screenshot" field to check even if that follow-up step somehow
+    # never ran.
     meta.setdefault("screenshot", {"status": "none"})
 
-    # Phase 3: computed last, once every other field above has settled,
-    # so it reflects what actually happened in THIS save rather than being
+    # Computed last, once every other field above has settled, so it
+    # reflects what actually happened in THIS save rather than being
     # guessed from a partial meta dict.
     meta["categories"] = compute_category_statuses(meta)
 
-    # BETA-0.17: stamp the schema version a fresh save is already written
-    # in, so migrate_preset() has nothing to do the very first time it
-    # ever sees this preset.
+    # Stamp the schema version a fresh save is already written in, so
+    # migrate_preset() has nothing to do the very first time it ever
+    # sees this preset.
     meta["schema_version"] = SCHEMA_VERSION
 
     (preset_dir / "meta.json").write_text(json.dumps(meta, indent=2))
@@ -2027,26 +2001,25 @@ def update_preset_meta(name, key, value):
     meta = load_meta(name)
     meta[key] = value
     # Some keys (plymouth, wallpaper, dconf, lightdm, grub) feed directly
-    # into compute_category_statuses() — recompute so "categories" never
+    # into compute_category_statuses() -- recompute so "categories" never
     # goes stale after a post-save patch like the Plymouth root retry.
     if key != "categories":
         meta["categories"] = compute_category_statuses(meta)
     (preset_dir / "meta.json").write_text(json.dumps(meta, indent=2))
 
 
-# --- Phase 5: stray GTK override detection ----------------------------
+# --- Stray GTK override detection ---------------------------------------
 #
 # ~/.config/gtk-3.0/gtk.css (and gtk-dark.css), plus the GTK4 equivalents
 # under ~/.config/gtk-4.0/, are a user-level override GTK applies on TOP
-# of whatever theme is active — completely outside dconf and outside any
+# of whatever theme is active -- completely outside dconf and outside any
 # ~/.themes/<name>/ folder, so no preset switch can ever touch it, let
 # alone clear it. If one exists, an applied theme can look "wrong" (a
 # stale color forced in, a widget style stuck) in a way that has nothing
-# to do with the preset that was just applied — hit once already during
-# dev testing. Detection only; deletion always needs its own explicit
-# confirmation from whoever's using the app (see
-# ApplyThemeSection._on_delete_gtk_override) — this never auto-removes
-# anything.
+# to do with the preset that was just applied. Detection only; deletion
+# always needs its own explicit confirmation from whoever's using the
+# app (see ApplyThemeSection._on_delete_gtk_override) -- this never
+# auto-removes anything.
 
 GTK_OVERRIDE_FILES = [
     Path.home() / ".config/gtk-3.0/gtk.css",
@@ -2065,37 +2038,37 @@ def find_stray_gtk_overrides():
 def apply_preset(name, selected_categories=None):
     """Applies everything that doesn't need root: dconf settings, wallpaper,
     bundled themes, bundled extensions/applets/desklets, panel layout, and
-    per-app icon overrides. LightDM/Plymouth/GRUB are NOT touched here —
+    per-app icon overrides. LightDM/Plymouth/GRUB are NOT touched here --
     those are separate, deliberate, per-item actions (see apply_lightdm/
     apply_plymouth/apply_grub) since each needs its own admin authorization.
 
-    Phase 1 fault isolation: every step below is independent. One theme
-    failing to copy, one addon's files being unreadable, or one dconf
-    category failing to write does NOT stop the others — each failure is
+    Fault isolation: every step below is independent. One theme failing
+    to copy, one addon's files being unreadable, or one dconf category
+    failing to write does NOT stop the others -- each failure is
     recorded and everything else still gets applied. dconf itself is only
     ever touched through the explicit per-category allowlist (see
     CATEGORY_DCONF_KEYS/CATEGORY_DCONF_DIRS), never a whole-tree reset, so
     a partial apply can never wipe something the preset never touched in
     the first place.
 
-    Phase 5: selected_categories is an optional {category_key: bool} from
-    ApplyPresetDialog's own "Customize the theme's parameters" checklist —
+    selected_categories is an optional {category_key: bool} from
+    ApplyPresetDialog's own "Customize the theme's parameters" checklist --
     same shape and same "missing key defaults to True" rule as
     save_preset()'s. An unchecked category is left completely untouched on
     the live system: no dconf write/reset for it, no asset/addon restore
     for the kinds that belong to it. This only applies to presets saved in
-    the Phase 1+ per-category format — a legacy (whole-tree) preset has no
+    the per-category format -- a legacy (whole-tree) preset has no
     per-category dconf data to selectively apply from, so category
     selection is ignored for it and a warning says so instead of silently
     doing nothing.
 
     Returns a dict:
       {"warnings": [...],   # referenced by the preset but not found anywhere
-                             # on this system — will simply be missing
+                             # on this system -- will simply be missing
        "errors": [...],     # found, but failed to actually apply/copy/write
        "applied_anything": bool}
     Raises only if NOTHING could be applied at all (e.g. no saved data, or
-    every single step failed) — a partial success never raises.
+    every single step failed) -- a partial success never raises.
     """
     preset_dir = PRESETS_DIR / name
     meta = load_meta(name)
@@ -2129,7 +2102,7 @@ def apply_preset(name, selected_categories=None):
                         if text:
                             dirs[d] = _rewrite_wallpaper_in_dir_dump(text, new_uri)
                     entry["dirs"] = dirs
-            # BETA-0.8: point each sound-event key at this preset's own
+            # Point each sound-event key at this preset's own
             # bundled copy of that event's audio file, same idea as the
             # wallpaper rewrite just above -- see "Sound event files"
             # section for why sound needs its own per-key handling
@@ -2157,8 +2130,8 @@ def apply_preset(name, selected_categories=None):
             else:
                 applied_anything = True
     else:
-        # Legacy preset (saved before Phase 1) — no per-category data was
-        # ever captured for it, so fall back to the old whole-tree
+        # Legacy preset (saved before per-category data existed) -- no
+        # per-category data was ever captured for it, so fall back to the whole-tree
         # reset+load. Still wrapped so a failure here is reported instead
         # of raising past everything below it.
         try:
@@ -2191,7 +2164,7 @@ def apply_preset(name, selected_categories=None):
 
     # --- Files: theme assets, extensions/applets/desklets, panel-layout
     #     configs, per-app icon overrides. Each already fault-isolates its
-    #     own items internally (see restore_assets etc.) — here we just
+    #     own items internally (see restore_assets etc.) -- here we just
     #     make sure one whole category failing outright doesn't stop the
     #     next one. Filtered by category selection *before* handing off,
     #     so an unchecked category's files are never even touched.
@@ -2276,7 +2249,7 @@ def rename_preset(old, new):
     if new_dir.exists():
         raise FileExistsError(f"A preset named '{new}' already exists.")
     old_dir.rename(new_dir)
-    # meta.json's "name" mirrors the folder name (Phase 3 schema) — keep
+    # meta.json's "name" mirrors the folder name -- keep
     # them in sync so nothing reads a stale display name afterward.
     try:
         meta = load_meta(new)
@@ -2287,7 +2260,7 @@ def rename_preset(old, new):
 
 
 # ---------------------------------------------------------------------------
-# Phase 6 (part 1) — Export
+# Export
 #
 # .tar.gz, not zip: cursor themes rely heavily on symlinks, and zipfile
 # doesn't preserve those on extract, tarfile does natively. Each category's
@@ -2329,10 +2302,10 @@ def _redact_meta_for_export(meta, selected):
     category shows up as "skipped_on_purpose" -- the exact same shape
     save_preset() itself produces for a category the Save wizard's
     checklist left unchecked (see save_preset()'s _sel() branches).
-    Reusing that shape is deliberate, not a shortcut: the roadmap calls
-    for meta.json's status field to distinguish "skipped on export" from
-    "not present on this system" using "the same status system as Phase
-    3, not a separate mechanism" -- so a preset re-imported after being
+    Reusing that shape is deliberate, not a shortcut: meta.json's status
+    field should distinguish "skipped on export" from "not present on
+    this system" using the same status system as everywhere else, not a
+    separate mechanism -- so a preset re-imported after being
     exported with GRUB unchecked looks exactly like one that was saved
     with GRUB unchecked in the first place, not like a third, novel
     state Import would need its own logic to understand."""
@@ -2386,7 +2359,7 @@ def _redact_meta_for_export(meta, selected):
 def export_preset(name, dest_path, selected_categories=None, cancel_event=None, progress_cb=None):
     """Writes preset `name` out as a .tar.gz at dest_path, with a single
     top-level `<name>/` directory inside the archive matching the
-    on-disk preset layout exactly -- so Phase 6 part 2 (Import) can
+    on-disk preset layout exactly -- so import_preset() can
     extract it straight into PRESETS_DIR/<name>/ with no translation
     step. selected_categories is the same {category: bool} shape the
     Save wizard's checklist already produces; a category missing from
@@ -2402,7 +2375,7 @@ def export_preset(name, dest_path, selected_categories=None, cancel_event=None, 
 
     Raises ExportCancelled if cancel_event fires, FileNotFoundError if
     the preset doesn't exist, ValueError if it has no screenshot yet
-    (export is blocked on this per the roadmap -- a preset with no
+    (export is deliberately blocked on this -- a preset with no
     screenshot, typically a not-yet-fixed-up import, needs a real
     thumbnail before it's worth handing to someone else)."""
     preset_dir = PRESETS_DIR / name
@@ -2486,7 +2459,7 @@ def export_preset(name, dest_path, selected_categories=None, cancel_event=None, 
 
 
 # ---------------------------------------------------------------------------
-# Phase 6 (part 2) — Import
+# Import
 #
 # Mirrors export_preset()'s safety shape rather than inventing a new one:
 # staged write (extract into a private, same-filesystem staging dir, commit
@@ -2494,8 +2467,8 @@ def export_preset(name, dest_path, selected_categories=None, cancel_event=None, 
 # safe mid-operation cancel, and reuses run_export_with_progress()'s dialog
 # rather than a second cancel-aware mechanism. The one-line rule this whole
 # module exists to uphold: import only ever writes files to disk and never
-# touches dconf, LightDM, Plymouth, or GRUB -- "never auto-applies anything"
-# from the roadmap is enforced structurally here, not just documented,
+# touches dconf, LightDM, Plymouth, or GRUB -- import never auto-applies
+# anything, enforced structurally here, not just documented,
 # because nothing in this module calls anything from the apply-side code at
 # all.
 # ---------------------------------------------------------------------------
@@ -2633,7 +2606,7 @@ def import_preset(archive_path, final_name, cancel_event=None, progress_cb=None)
         if not extracted_dir.is_dir():
             raise ImportInvalidArchive("Archive extraction did not produce the expected folder.")
 
-        # meta.json's "name" mirrors the folder name (Phase 3 schema, same
+        # meta.json's "name" mirrors the folder name (same
         # invariant rename_preset() maintains) -- keep them in sync if the
         # final name differs from what the archive itself was named.
         if final_name != archive_name:
@@ -2728,13 +2701,12 @@ def perform_git_update():
 
 
 def _is_appimage():
-    """Roadmap Phase 8's AppImage item is explicitly a secondary,
-    optional-future distribution path -- there's no build system in this
-    project producing an AppImage yet, so there's nothing real to
-    download-and-swap. This just lets the update flow recognize the
-    situation and say so plainly instead of showing the generic
-    "not a git checkout" message, which would be confusing/wrong for
-    someone who didn't clone anything."""
+    """AppImage distribution is an optional future path -- there's no
+    build system in this project producing an AppImage yet, so there's
+    nothing real to download-and-swap. This just lets the update flow
+    recognize the situation and say so plainly instead of showing the
+    generic "not a git checkout" message, which would be confusing/wrong
+    for someone who didn't clone anything."""
     return bool(os.environ.get("APPIMAGE"))
 
 
@@ -2762,33 +2734,33 @@ def _should_auto_check_updates():
 
 
 def restart_process():
-    """Roadmap Phase 8: after a successful self-update, relaunch in
-    place via os.execv rather than telling the person to close and
-    reopen the app themselves. This replaces the current process image
-    entirely -- re-importing modules in the same interpreter wouldn't
-    pick up the change, since Python's already loaded the old bytecode
-    for everything into memory. Never returns on success."""
+    """After a successful self-update, relaunch in place via os.execv
+    rather than telling the person to close and reopen the app
+    themselves. This replaces the current process image entirely --
+    re-importing modules in the same interpreter wouldn't pick up the
+    change, since Python's already loaded the old bytecode for
+    everything into memory. Never returns on success."""
     os.execv(sys.executable, [sys.executable] + sys.argv)
 
 
 # ---------------------------------------------------------------------------
-# Phase 2: Screenshot Capture Module
+# Screenshot Capture Module
 #
-# Standalone here on purpose (per the roadmap) — the Save wizard (Phase 4)
-# and the main list's thumbnails (Phase 3) both just construct a
+# Standalone here on purpose -- the Save wizard and the main list's
+# thumbnails both just construct a
 # ScreenshotCaptureFlow and call .start(); neither reimplements any of
 # this. Deliberately no external screenshot utility dependency (no
-# gnome-screenshot, no scrot, no import(1)) — capture goes straight
+# gnome-screenshot, no scrot, no import(1)) -- capture goes straight
 # through GDK, which this app already depends on for its own window.
 # ---------------------------------------------------------------------------
 
-SCREENSHOT_COUNTDOWN_SECONDS = 4  # within the roadmap's ~3-5s window
+SCREENSHOT_COUNTDOWN_SECONDS = 4  # long enough to get out of frame, short enough not to feel tedious
 SCREENSHOT_FILENAME = "screenshot.png"
 
 
 def capture_screen_pixbuf():
     """Grab the whole screen as a GdkPixbuf directly off the root window
-    — the same mechanism GTK itself uses internally, no external tool
+    -- the same mechanism GTK itself uses internally, no external tool
     involved. Raises with a real message on failure instead of quietly
     returning a blank/partial image, so callers can surface it."""
     root = Gdk.get_default_root_window()
@@ -2813,7 +2785,7 @@ def save_screenshot(preset_dir, pixbuf):
 
 
 def _scale_pixbuf_to_fit(pixbuf, max_w, max_h):
-    """Downscale for on-screen preview only — never touches the actual
+    """Downscale for on-screen preview only -- never touches the actual
     saved file, which always keeps the full-resolution capture."""
     w, h = pixbuf.get_width(), pixbuf.get_height()
     scale = min(max_w / w, max_h / h, 1.0)
@@ -2824,9 +2796,9 @@ def _scale_pixbuf_to_fit(pixbuf, max_w, max_h):
 
 
 # ---------------------------------------------------------------------------
-# Phase 3: thumbnails — a real screenshot if the preset has one, otherwise a
+# Thumbnails -- a real screenshot if the preset has one, otherwise a
 # deterministic gradient placeholder (same seed text -> same colors, every
-# time), matching the color-block placeholders in the design mockups.
+# time).
 # ---------------------------------------------------------------------------
 
 def _gradient_colors_for_seed(seed):
@@ -2847,7 +2819,7 @@ def _gradient_colors_for_seed(seed):
 def render_gradient_placeholder(seed_text, width, height):
     """Returns a GdkPixbuf of a diagonal two-color gradient, seeded off
     `seed_text` (typically the preset's display name). Pure function, no
-    disk access — nothing is cached to a file, it's cheap enough to
+    disk access -- nothing is cached to a file, it's cheap enough to
     regenerate on the fly whenever the list needs it."""
     width, height = max(1, int(width)), max(1, int(height))
     surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, width, height)
@@ -2871,7 +2843,7 @@ def render_gradient_placeholder(seed_text, width, height):
 # right next to the existing icons/cinnamon-presets.svg. Checked in both
 # a source checkout AND an installed copy (see install.sh, which mirrors
 # this folder into ~/.local/share/cinnamon-presets/icons/categories/ the
-# same way it already installs the main app icon) — drop a file in named
+# same way it already installs the main app icon) -- drop a file in named
 # after any key in CATEGORY_ORDER (e.g. "grub.svg", "plymouth.svg") and
 # it's picked up automatically next run, no code changes needed.
 #
@@ -2900,7 +2872,7 @@ CATEGORY_SYSTEM_ICON_NAMES = {
                                  # theme previews section below
     "widgets": ["cs-desklets", "applications-accessories"],
     "lightdm": ["system-lock-screen", "system-users"],
-    "plymouth": [],  # no sensible system icon exists — needs custom art
+    "plymouth": [],  # no sensible system icon exists -- needs custom art
     "grub": [],      # same
 }
 
@@ -2918,7 +2890,7 @@ def _letterbox_to_square(pixbuf, size):
     """Center pixbuf on a transparent size x size canvas. Every category
     icon in the row is drawn at the same fixed size, so a custom asset
     that isn't square (e.g. a wide Windows-7-style glyph) needs this to
-    read as the same visual weight as its square/symbolic neighbors —
+    read as the same visual weight as its square/symbolic neighbors --
     new_from_file_at_scale()'s preserve_aspect_ratio alone just shrinks
     it to fit *inside* the box, it doesn't recenter it in the box."""
     canvas = GdkPixbuf.Pixbuf.new(GdkPixbuf.Colorspace.RGB, True, 8, size, size)
@@ -2956,17 +2928,17 @@ def load_category_icon_pixbuf(cat, size):
 
 
 # ---------------------------------------------------------------------------
-# General UI icons (toolbar/action buttons) — separate namespace from the
+# General UI icons (toolbar/action buttons) -- separate namespace from the
 # category swatches above, since these are a different kind of icon
 # entirely (interface actions, not theme-category illustrations). Same
 # "custom art first, then a system fallback, then nothing" pattern, except
 # the final fallback here is None (plain text button) rather than a
-# gradient placeholder — a colored square would look like an error on a
+# gradient placeholder -- a colored square would look like an error on a
 # toolbar button, whereas it reads fine as a stand-in preset thumbnail.
 #
 # Covers Import/Export now. Settings, "+ Save New Preset", and the footer's
 # Patreon/YouTube/GitHub logos are all planned to use this same mechanism
-# later — just add a name to UI_SYSTEM_ICON_NAMES and/or drop a file in
+# later -- just add a name to UI_SYSTEM_ICON_NAMES and/or drop a file in
 # icons/ui/ whenever that art exists, no new plumbing needed.
 # ---------------------------------------------------------------------------
 
@@ -3210,15 +3182,14 @@ def category_swatch_pixbuf(cat, size):
     categories where that's meaningful (Cursor, Icons, Panel, Profile
     Picture); everything else, and anything a live preview couldn't be
     produced for, falls back to the existing category-icon chain (custom
-    art -> system icon -> gradient) — so this can never make a row look
+    art -> system icon -> gradient) -- so this can never make a row look
     worse than it already did before live previews existed. All four
     resolve straight from live system/theme state (GTK icon theme, cursor
     state, or AccountsService), no screenshot needed for any of them.
 
     Shared by SavePresetWizard and ApplyPresetDialog so the same category
-    always renders the same icon in both places — per the roadmap's "same
-    icons, same layout" checklist design, this is the one place that
-    mapping lives instead of two copies that could drift apart."""
+    always renders the same icon in both places -- this is the one place
+    that mapping lives instead of two copies that could drift apart."""
     if cat == "cursor":
         preview = render_cursor_preview(size)
         if preview is not None:
@@ -3263,14 +3234,13 @@ def build_dialog_title_header(title_text, preset_name):
 
 def build_category_checklist_row(cat, size, initial_checked, status_note=None):
     """Shared checklist-row builder for the 12-category checklist reused
-    verbatim across Save (Phase 4), Apply (Phase 5), and Export (Phase
-    6) -- same icon, same label, same description everywhere, per the
-    roadmap's "same visual language" design goal: learn this row once,
-    recognize it in all three places. Previously duplicated as a
-    private _build_category_row() method on both SavePresetWizard and
-    ApplyPresetDialog (same risk category_swatch_pixbuf() above was
-    already extracted to avoid); pulled out here instead of adding a
-    third copy for ExportDialog.
+    verbatim across Save, Apply, and Export -- same icon, same label,
+    same description everywhere, so it reads as the same visual
+    language across all three: learn this row once, recognize it in all
+    three places. I keep this as one shared function rather than a
+    private method duplicated on SavePresetWizard, ApplyPresetDialog,
+    and ExportDialog -- the same duplication risk category_swatch_pixbuf()
+    above avoids the same way.
 
     Only what actually varies between the three callers is a parameter:
     the swatch size, whether the box starts checked, and an optional
@@ -3309,9 +3279,9 @@ def build_category_checklist_row(cat, size, initial_checked, status_note=None):
 def load_thumbnail_pixbuf(preset_dir, meta, width, height):
     """The one place both grid and list view ask for a preset's thumbnail.
     Real screenshot if there is one and it's still readable; a
-    deterministic gradient placeholder otherwise — this is meant to
-    "mainly only occur on imports" per the roadmap, but also covers any
-    preset saved with the screenshot prompt declined."""
+    deterministic gradient placeholder otherwise -- mainly expected to
+    occur on imports, but also covers any preset saved with the
+    screenshot prompt declined."""
     shot = (meta or {}).get("screenshot") or {}
     if shot.get("status") == "saved" and shot.get("file"):
         path = Path(preset_dir) / shot["file"]
@@ -3323,7 +3293,7 @@ def load_thumbnail_pixbuf(preset_dir, meta, width, height):
                 if pixbuf is not None:
                     return pixbuf
             except GLib.Error:
-                pass  # corrupt/unreadable file — fall through to the placeholder
+                pass  # corrupt/unreadable file -- fall through to the placeholder
     seed = (meta or {}).get("name") or Path(preset_dir).name
     return render_gradient_placeholder(seed, width, height)
 
@@ -3331,13 +3301,13 @@ def load_thumbnail_pixbuf(preset_dir, meta, width, height):
 def capture_cursor_overlay():
     """Best-effort pointer position + cursor glyph, in the same root-
     window coordinates the screen capture itself uses. Returns None if
-    either piece isn't available on this system — showing the cursor is
+    either piece isn't available on this system -- showing the cursor is
     opt-in, so it's fine for this to just come up empty and leave the
     checkbox in the review dialog hidden.
 
     No XFixes/ctypes needed: Gdk.Cursor.get_image() already hands back
     GDK's own cursor-theme pixbuf for a named cursor, which is enough to
-    draw a representative pointer glyph — it won't reflect exactly which
+    draw a representative pointer glyph -- it won't reflect exactly which
     cursor (text/resize/etc.) was under the pointer at that instant, but
     for a desktop-look screenshot that's not the point; showing roughly
     where the mouse was is."""
@@ -3360,7 +3330,7 @@ def capture_cursor_overlay():
     # into the cursor's *nominal* bitmap, which isn't necessarily the size
     # GDK actually rendered here. A theme that only ships e.g. 32px cursors
     # while the display asks for 24px gets scaled down, and get_image()
-    # doesn't scale x_hot/y_hot to match — so the tip drifts off-center,
+    # doesn't scale x_hot/y_hot to match -- so the tip drifts off-center,
     # and how far depends on how mismatched that theme's native size is
     # from the requested one (fine for a theme that already matches,
     # visibly off for one that doesn't). get_surface() returns hot_x/hot_y
@@ -3415,8 +3385,8 @@ def capture_cursor_overlay():
 
 def composite_cursor_onto(pixbuf, cursor_pixbuf, hotspot, x, y):
     """Returns a NEW pixbuf (the original is left untouched) with the
-    cursor glyph drawn at (x, y) — root-window coordinates, same as the
-    screenshot's own — offset by the cursor's hotspot so its tip lines
+    cursor glyph drawn at (x, y) -- root-window coordinates, same as the
+    screenshot's own -- offset by the cursor's hotspot so its tip lines
     up with where the pointer actually was."""
     result = pixbuf.copy()
     hot_x, hot_y = hotspot
@@ -3424,7 +3394,7 @@ def composite_cursor_onto(pixbuf, cursor_pixbuf, hotspot, x, y):
     cw, ch = cursor_pixbuf.get_width(), cursor_pixbuf.get_height()
     pw, ph = result.get_width(), result.get_height()
 
-    # Clip to the destination's bounds — the pointer can sit right at a
+    # Clip to the destination's bounds -- the pointer can sit right at a
     # screen edge, and composite() expects an in-bounds rectangle.
     clip_x, clip_y = max(0, dest_x), max(0, dest_y)
     clip_w = min(cw - (clip_x - dest_x), pw - clip_x)
@@ -3444,7 +3414,7 @@ class _CountdownOverlay(Gtk.Window):
     """Small, borderless, always-on-top badge shown during the countdown.
     The whole point of the countdown existing at all is so the user has
     time to open the Cinnamon menu or arrange a window before the shot
-    fires — a silent countdown with nothing on screen would defeat that,
+    fires -- a silent countdown with nothing on screen would defeat that,
     so this is deliberately visible even though the main app window is
     hidden for the same period."""
 
@@ -3491,11 +3461,11 @@ class _CountdownOverlay(Gtk.Window):
 
 class _ScreenshotReviewDialog(Gtk.Dialog):
     """Shown immediately after a capture: a preview plus Retake/Keep.
-    Nothing is written to disk until Keep is chosen — Retake just throws
+    Nothing is written to disk until Keep is chosen -- Retake just throws
     the just-captured pixbuf away and runs the countdown again.
 
     The mouse cursor is never baked into the base capture (see
-    capture_screen_pixbuf) — if cursor_info is available, a checkbox
+    capture_screen_pixbuf) -- if cursor_info is available, a checkbox
     here lets you composite it in for preview and for the final saved
     file, OFF by default. No cursor_info (system couldn't provide one) =
     no checkbox at all, and the base capture is used as-is."""
@@ -3510,7 +3480,7 @@ class _ScreenshotReviewDialog(Gtk.Dialog):
 
         self._base_pixbuf = pixbuf
         self._cursor_info = cursor_info
-        self.show_cursor = False  # off by default — an arbitrary pointer
+        self.show_cursor = False  # off by default -- an arbitrary pointer
 
         box = self.get_content_area()
         box.set_border_width(10)
@@ -3565,7 +3535,7 @@ class ScreenshotCaptureFlow:
     """Orchestrates hide -> countdown -> capture -> keep/retake. Construct
     one per capture session and call .start(); on_finished(pixbuf_or_None)
     fires exactly once, when the user keeps a shot, cancels the review
-    dialog, or capture itself fails — never mid-retake."""
+    dialog, or capture itself fails -- never mid-retake."""
 
     def __init__(self, parent_window, on_finished):
         self.parent = parent_window
@@ -3605,11 +3575,11 @@ class ScreenshotCaptureFlow:
             self._overlay.destroy()
             self._overlay = None
 
-        # destroy() only *schedules* the unmap — it doesn't block until the
+        # destroy() only *schedules* the unmap -- it doesn't block until the
         # X server/compositor has actually redrawn the screen without the
-        # countdown badge on it. Capturing on the very next line was
-        # grabbing a frame that still had the countdown baked in (visible
-        # in testing: a screenshot with a "1" badge in the corner). Force
+        # countdown badge on it. Capturing on the very next line risks
+        # grabbing a frame that still has the countdown baked in (a
+        # screenshot with a "1" badge in the corner). Force
         # the pending unmap through, then give the compositor a brief
         # moment to actually repaint before the real capture happens.
         display = Gdk.Display.get_default()
@@ -3632,7 +3602,7 @@ class ScreenshotCaptureFlow:
             try:
                 cursor_info = capture_cursor_overlay()
             except Exception:
-                cursor_info = None  # best-effort only — never blocks the shot
+                cursor_info = None  # best-effort only -- never blocks the shot
 
         if self._was_visible:
             self.parent.show()
@@ -3673,12 +3643,11 @@ class ScreenshotCaptureFlow:
 # ---------------------------------------------------------------------------
 
 def run_with_progress(parent, title, message, work_fn, on_done):
-    """Roadmap addendum (retrofitted into Phase 4 Save and Phase 5 Apply,
-    ahead of Phase 6 reusing it): runs work_fn() on a background thread
-    instead of blocking the GTK main loop, showing a small indeterminate
-    progress dialog in the meantime. Without this, bundling a large
-    custom theme on Save, or Plymouth's initramfs rebuild on Apply, just
-    freezes the window with zero feedback -- looks crashed, not busy.
+    """Runs work_fn() on a background thread instead of blocking the
+    GTK main loop, showing a small indeterminate progress dialog in the
+    meantime. Without this, bundling a large custom theme on Save, or
+    Plymouth's initramfs rebuild on Apply, just freezes the window with
+    zero feedback -- looks crashed, not busy.
 
     work_fn takes no arguments and either returns a result or raises.
     on_done(result, error) is called back on the GTK main thread once it
@@ -3693,11 +3662,11 @@ def run_with_progress(parent, title, message, work_fn, on_done):
     Deliberately has no Cancel button: none of what runs behind this (a
     dconf load already in flight, a pkexec call mid-authentication, a
     shutil.copytree partway through) is safe to interrupt, so this
-    doesn't pretend otherwise. Phase 6's Import/Export explicitly calls
-    for a *safe* cancel — that's a different, cancel-aware work_fn
-    design, not something this dialog can retrofit on its own; it should
-    still reuse this dialog for its progress display, just with a
-    work_fn that actually checks a cancellation flag periodically."""
+    doesn't pretend otherwise. Import/Export need a *safe* cancel --
+    that's a different, cancel-aware work_fn design, not something this
+    dialog can retrofit on its own; it should still reuse this dialog
+    for its progress display, just with a work_fn that actually checks a
+    cancellation flag periodically."""
     dialog = Gtk.Dialog(title=title, transient_for=parent, flags=0)
     dialog.set_default_size(360, 120)
     dialog.set_resizable(False)
@@ -3746,8 +3715,8 @@ def run_with_progress(parent, title, message, work_fn, on_done):
 
 
 def run_export_with_progress(parent, title, message, work_fn, on_done):
-    """Phase 6's cancel-safe sibling to run_with_progress() above. That
-    one deliberately has no Cancel button, because nothing it's used for
+    """Export/Import's cancel-safe sibling to run_with_progress() above.
+    That one deliberately has no Cancel button, because nothing it's used for
     (a dconf load, a pkexec call mid-authentication) is safe to
     interrupt partway through. Export is the opposite: it only ever
     reads from PRESETS_DIR and writes to a throwaway .part file, so
@@ -3846,9 +3815,9 @@ def show_message_dialog(parent, title, message, message_type=Gtk.MessageType.INF
 
 
 class SavePresetWizard(Gtk.Dialog):
-    """Roadmap Phase 4: the mandatory Save flow. Screenshot and Name are
+    """The mandatory Save flow. Screenshot and Name are
     required before Save becomes clickable; Description is optional;
-    the same 12-category checklist Export/Apply will reuse later sits
+    the same 12-category checklist Export/Apply reuse sits
     behind a collapsible "Customize the theme's parameters" section,
     everything checked by default -- saving is local and risk-free, so
     there's nothing to warn about here (unlike Export's opt-in boot items
@@ -3914,12 +3883,11 @@ class SavePresetWizard(Gtk.Dialog):
         # --- Description (optional) --------------------------------------
         desc_label = Gtk.Label(label="Description", xalign=0)
         content.pack_start(desc_label, False, False, 0)
-        # BETA-0.10 fix: was a bare Gtk.ScrolledWindow(shadow_type=IN) --
-        # that sunken border renders fine under Adwaita but is nearly
-        # invisible under flatter/custom GTK themes, making the box look
-        # like it isn't rendering at all. An explicit Frame (same pattern
-        # already used for the thumbnail above) draws a border far more
-        # consistently across themes.
+        # An explicit Frame draws a border consistently across GTK
+        # themes -- some flatter/custom themes render a bare
+        # Gtk.ScrolledWindow(shadow_type=IN)'s sunken border as nearly
+        # invisible, making the box look like it isn't rendering at all.
+        # Same pattern already used for the thumbnail above.
         desc_frame = Gtk.Frame()
         desc_frame.set_shadow_type(Gtk.ShadowType.IN)
         content.pack_start(desc_frame, False, False, 0)
@@ -3992,12 +3960,11 @@ class SavePresetWizard(Gtk.Dialog):
 
 
 class ApplyPresetDialog(Gtk.Dialog):
-    """Roadmap Phase 5: fully replaces the old separate SystemBootDialog.
-    One scrollable page per preset, broken into independent, separately
+    """One scrollable page per preset, broken into independent, separately
     authorized sections: Apply Theme (no root, own "Customize the theme's
     parameters" sub-checklist so it's not all-or-nothing) plus Apply Lock
     Screen / Apply Boot Animation / Apply GRUB Bootloader, each root-gated
-    with its own pkexec call — authorizing one boot-level section never
+    with its own pkexec call -- authorizing one boot-level section never
     grants access to the others."""
 
     BOOT_ITEMS = [
@@ -4015,14 +3982,13 @@ class ApplyPresetDialog(Gtk.Dialog):
     ]
 
     # Items that haven't been verified end-to-end get a red warning here
-    # instead of being quietly presented as equally solid. Empty now that
-    # GRUB has been confirmed working end-to-end; kept as a mechanism in
-    # case a future boot item needs the same treatment before release.
+    # instead of being quietly presented as equally solid. Empty for now;
+    # I keep this as a mechanism in case a future boot item needs the
+    # same treatment.
     UNTESTED = {}
 
-    # BETA-0.17 (Roadmap Addendum: Backups, b-lite): "Restore Previous
-    # Configuration" used to be GRUB-only; now all three boot items behave
-    # consistently. Keyed the same as BOOT_ITEMS above.
+    # I treat "Restore Previous Configuration" the same way for all
+    # three boot items, keyed the same as BOOT_ITEMS above.
     BACKUP_FUNCS = {
         "lightdm": (lightdm_backup_exists, restore_lightdm_backup),
         "plymouth": (plymouth_backup_exists, restore_plymouth_backup),
@@ -4060,15 +4026,16 @@ class ApplyPresetDialog(Gtk.Dialog):
         for key, title, description in self.BOOT_ITEMS:
             box.pack_start(self._build_boot_row(key, title, description), False, False, 0)
 
-        # BUG FIX: this used to be box.show_all() -- showing the content
+        # I deliberately show the whole dialog (top-level + content)
+        # together in one self.show_all() call here, rather than
+        # showing the content separately and earlier via box.show_all()
         # before the dialog's own top-level window is realized. GTK3 can
         # fail to queue the initial paint for content shown that way, even
-        # though every widget correctly ends up with visible=True — the
-        # dialog opens with real widgets in the tree, correct visibility
-        # flags, correct size allocation, and a completely blank white
-        # body regardless. Showing the whole dialog (top-level + content)
-        # together in one self.show_all() call, instead of showing the
-        # content separately and earlier, avoids the bad ordering.
+        # though every widget correctly ends up with visible=True -- the
+        # dialog would open with real widgets in the tree, correct
+        # visibility flags, correct size allocation, and a completely
+        # blank white body regardless. Showing everything together avoids
+        # that bad ordering.
         self._refresh_gtk_override_banner()
         self.show_all()
 
@@ -4095,7 +4062,7 @@ class ApplyPresetDialog(Gtk.Dialog):
         inner.add(desc_label)
 
         # Populated (or left empty) by _refresh_gtk_override_banner(),
-        # called once below and again right after every Apply Theme run —
+        # called once below and again right after every Apply Theme run --
         # this file sits outside dconf and outside any preset's own
         # folder, so nothing here can clear it; the best this dialog can
         # do is keep telling the truth about whether it's still there.
@@ -4115,10 +4082,10 @@ class ApplyPresetDialog(Gtk.Dialog):
         apply_btn.connect("clicked", self._on_apply_theme)
         inner.add(apply_btn)
 
-        # BETA-0.16 fix: this used to always take up a line of layout
-        # space even when empty (its default state until an Apply
-        # actually runs), showing as a dead gap between the button and
-        # the frame's bottom edge. Hidden until there's real text to show.
+        # Hidden until there's real text to show -- otherwise this label
+        # always takes up a line of layout space even when empty (its
+        # default state until an Apply actually runs), showing as a dead
+        # gap between the button and the frame's bottom edge.
         self.theme_status_label = Gtk.Label(label="", xalign=0)
         self.theme_status_label.set_line_wrap(True)
         self.theme_status_label.set_max_width_chars(55)
@@ -4138,7 +4105,7 @@ class ApplyPresetDialog(Gtk.Dialog):
 
         # A category this preset never captured (skipped at save time, or
         # never applicable) can't do anything useful when applied anyway
-        # — pre-uncheck it rather than let the button silently no-op, but
+        # -- pre-uncheck it rather than let the button silently no-op, but
         # leave it toggleable in case that status is wrong or changes.
         initial_checked = status not in ("skipped_on_purpose", "not_applicable", "not_implemented")
 
@@ -4180,7 +4147,7 @@ class ApplyPresetDialog(Gtk.Dialog):
 
             # What's on disk may have just changed (a theme swap can leave
             # a stray gtk.css behind or reveal one that was already masked
-            # by a matching color) — re-check rather than trust the
+            # by a matching color) -- re-check rather than trust the
             # pre-apply scan.
             self._refresh_gtk_override_banner()
 
@@ -4344,7 +4311,7 @@ class ApplyPresetDialog(Gtk.Dialog):
 
         if key in self.BACKUP_FUNCS:
             # Undoes this app's own most recent apply for this item,
-            # regardless of which preset that was — visible only when a
+            # regardless of which preset that was -- visible only when a
             # backup actually exists, refreshed after every apply/restore
             # rather than only computed once here.
             backup_exists_fn, _ = self.BACKUP_FUNCS[key]
@@ -4475,20 +4442,20 @@ class ApplyPresetDialog(Gtk.Dialog):
 
 
 class ExportDialog(Gtk.Dialog):
-    """Phase 6 (part 1). Same visual grammar as Save/Apply's checklist —
+    """Same visual grammar as Save/Apply's checklist --
     same icons, same labels, same descriptions, via the same
-    build_category_checklist_row() — but a different default checkbox
+    build_category_checklist_row() -- but a different default checkbox
     state, which is deliberate and is the entire point of repeating this
     UI a third time rather than just reusing SavePresetWizard's: saving
     is local and risk-free (everything checked), applying is gated by
     root regardless of anything else (the auth prompt is the safety
-    net), but exporting leaves the machine — so the three boot-level,
+    net), but exporting leaves the machine -- so the three boot-level,
     root-requiring categories (Lock Screen / Boot Animation / GRUB)
     start unchecked here and must be deliberately opted into, while
     everything else defaults to whatever this preset actually has
     (pre-unchecked, with a dim note, if there's nothing there to send).
 
-    Assumes the preset already has a screenshot — the caller is
+    Assumes the preset already has a screenshot -- the caller is
     responsible for checking that before ever constructing this, since
     "no screenshot" should stop the flow before the person spends time
     picking categories, not after. export_preset() re-checks it anyway,
@@ -4524,7 +4491,7 @@ class ExportDialog(Gtk.Dialog):
         )
         outer.pack_start(intro, False, False, 0)
 
-        # Framed like a distinct panel rather than a flat, unbordered list —
+        # Framed like a distinct panel rather than a flat, unbordered list --
         # matches the "Apply" screen's section framing instead of standing
         # out as the one checklist screen without any visual boundary.
         panel_frame = Gtk.Frame()
@@ -4555,7 +4522,7 @@ class ExportDialog(Gtk.Dialog):
             note = "nothing to export"
 
         if cat in self.ROOT_EXPORT_CATEGORIES:
-            initial_checked = False  # opt-in only — export leaves the machine
+            initial_checked = False  # opt-in only -- export leaves the machine
         else:
             initial_checked = status not in ("skipped_on_purpose", "not_applicable", "not_implemented")
 
@@ -4592,7 +4559,7 @@ class ExportDialog(Gtk.Dialog):
         dest_path = chooser.get_filename() if chooser_response == Gtk.ResponseType.OK else None
         chooser.destroy()
         if not dest_path:
-            return  # stay open — this was the file-picker's own Cancel, not the whole export
+            return  # stay open -- this was the file-picker's own Cancel, not the whole export
 
         if not dest_path.endswith(".tar.gz"):
             dest_path += ".tar.gz"
@@ -4676,7 +4643,7 @@ class ImportPreviewDialog(Gtk.Dialog):
 
 class DiskUsageBar(Gtk.DrawingArea):
     """Three quantities summing to a total (this app's usage / rest of
-    the system / free space) — GtkLevelBar is a single-value gauge, not
+    the system / free space) -- GtkLevelBar is a single-value gauge, not
     this, and GTK has no built-in widget for a stacked proportional bar,
     so this is a small custom Cairo draw on a DrawingArea instead."""
 
@@ -4730,10 +4697,10 @@ class DiskUsageBar(Gtk.DrawingArea):
 
 
 class SettingsWindow(Gtk.Dialog):
-    """Roadmap Phase 9 (Settings Tab addendum). Gtk.Stack + Gtk.StackSidebar
-    — matches Cinnamon Settings' own layout convention, scales better than
-    one long scrolling page. Six sections: General, Diagnostics, Storage,
-    Backups, Updates, About, in that fixed order."""
+    """Gtk.Stack + Gtk.StackSidebar -- matches Cinnamon Settings' own
+    layout convention, scales better than one long scrolling page. Six
+    sections: General, Diagnostics, Storage, Backups, Updates, About, in
+    that fixed order."""
 
     def __init__(self, parent):
         super().__init__(title="Settings", transient_for=parent, flags=0)
@@ -5019,7 +4986,7 @@ class SettingsWindow(Gtk.Dialog):
             "settings, and its logs. The app itself stays installed. "
             "This can't be undone."
         )
-        # "Export Presets First" stays plain/regular — it's the safe,
+        # "Export Presets First" stays plain/regular -- it's the safe,
         # non-destructive option, so it shouldn't compete visually with
         # the actual destructive action.
         confirm.add_button("Export Presets First", Gtk.ResponseType.HELP)
@@ -5314,11 +5281,10 @@ class CinnamonPresetsWindow(Gtk.Window):
     GRID_MIN_THUMB = 90
     GRID_MAX_THUMB = 260
     GRID_DEFAULT_THUMB = 160
-    # BETA-0.10: was one square LIST_THUMB_SIZE (56x56) — screenshots are
-    # 16:9, so a square crop was cutting them oddly. Also bumped up
-    # noticeably (old square was 56x56 = 3,136px²; this is 120x67 =
-    # 8,040px², well over double the area) per feedback that list-view
-    # thumbnails read too small.
+    # List-view thumbnails are 16:9 rather than square (screenshots are
+    # 16:9, so a square crop cuts them oddly) and sized generously (120x67
+    # = 8,040px², well over double a 56x56 square) so they read clearly
+    # at list-row scale.
     LIST_THUMB_WIDTH = 120
     LIST_THUMB_HEIGHT = 68  # round(120 * 9/16)
 
@@ -5337,8 +5303,8 @@ class CinnamonPresetsWindow(Gtk.Window):
         self.add(vbox)
 
         # --- update banner: slim, non-blocking, hidden until there's --------
-        # actually something to say. Roadmap Phase 8 explicitly calls for
-        # an InfoBar over a modal dialog here — set_no_show_all(True) so
+        # actually something to say. An InfoBar over a modal dialog here
+        # keeps it unobtrusive -- set_no_show_all(True) so
         # the window's own show_all() (in main()) can't accidentally
         # reveal it; only _show_update_banner() ever makes it visible.
         self.update_infobar = Gtk.InfoBar()
@@ -5381,9 +5347,8 @@ class CinnamonPresetsWindow(Gtk.Window):
         io_pair.pack_start(self.export_btn, False, False, 0)
 
         # Thumbnail size/Sort/Grid/List + the actual list live together
-        # inside one bordered panel, per the reference mockup -- visually
-        # distinct from the Search/Import/Export row above, which stays
-        # outside/unboxed.
+        # inside one bordered panel -- visually distinct from the
+        # Search/Import/Export row above, which stays outside/unboxed.
         browse_frame = Gtk.Frame()
         browse_frame.set_shadow_type(Gtk.ShadowType.IN)
         vbox.pack_start(browse_frame, True, True, 0)
@@ -5392,7 +5357,7 @@ class CinnamonPresetsWindow(Gtk.Window):
         browse_box.set_border_width(8)
         browse_frame.add(browse_box)
 
-        # --- browsing controls: thumbnail size slider (grid mode only —
+        # --- browsing controls: thumbnail size slider (grid mode only --
         # file-manager style) sits on the left, Sort/Grid/List anchored
         # right, one row either way -----------------------------------
         toolbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
@@ -5430,14 +5395,13 @@ class CinnamonPresetsWindow(Gtk.Window):
         toolbar.pack_end(self.sort_combo, False, False, 0)
 
         # --- the list itself, or an empty-state message ---
-        # BETA-0.16: this used to be a Gtk.Stack switching between the two
-        # views by name. In testing, the Stack's visible child kept
-        # getting allocated 1x1 regardless of transition-type, timing, or
-        # forced resizes/queue_resize() -- content existed, was correctly
-        # marked as the visible child, and still never received real
-        # layout space. Plain show()/hide() on a simple Box sidesteps
-        # whatever that Stack-specific allocation quirk was, with
-        # identical visible behavior (exactly one of the two shown).
+        # I use plain show()/hide() on a simple Box here rather than a
+        # Gtk.Stack switching between the two views by name -- a Stack's
+        # visible child can end up allocated 1x1 regardless of
+        # transition-type, timing, or forced resizes/queue_resize(), even
+        # though the content is correctly marked as the visible child.
+        # Plain show()/hide() sidesteps that allocation quirk entirely,
+        # with identical visible behavior (exactly one of the two shown).
         self.list_container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         self.list_container.set_vexpand(True)
         browse_box.pack_start(self.list_container, True, True, 0)
@@ -5455,15 +5419,14 @@ class CinnamonPresetsWindow(Gtk.Window):
         # "nothing selected" by clicking -- clicking the already-selected
         # item just re-confirms it by default, and there's no handling at
         # all for clicking empty space. See _on_flowbox_background_click
-        # for the two deselection paths (BETA-0.16 shipped path 1 only,
-        # which turned out unreliable; BETA-0.17 adds path 2, which is
-        # the one that's actually consistent).
+        # for the two deselection paths -- clicking empty background
+        # space is the more reliable one; see that handler for details.
         self.flowbox.connect("button-press-event", self._on_flowbox_background_click)
         scroll.add(self.flowbox)
         self.list_container.pack_start(scroll, True, True, 0)
         self._presets_view = scroll
 
-        # Empty state matches the mockup: a big "+" glyph over a short
+        # Empty state: a big "+" glyph over a short
         # prompt, rather than a plain sentence -- reads as an inviting
         # action target instead of just an absence-of-content notice.
         empty_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
@@ -5502,10 +5465,9 @@ class CinnamonPresetsWindow(Gtk.Window):
         self.delete_btn.connect("clicked", self.on_delete)
         btn_box.pack_start(self.delete_btn, True, True, 0)
 
-        # Phase 5: System Boot Settings used to be a separate button/dialog
-        # from Apply — now ApplyPresetDialog covers Theme + Lock Screen +
-        # Boot Animation + GRUB in one page, so there's just the one entry
-        # point below.
+        # System Boot Settings is covered by ApplyPresetDialog, which
+        # handles Theme + Lock Screen + Boot Animation + GRUB in one
+        # page, so there's just the one entry point below.
 
         self.save_btn = Gtk.Button(label="+ Save Current Desktop As New Preset")
         self.save_btn.connect("clicked", self.on_save_new)
@@ -5518,9 +5480,8 @@ class CinnamonPresetsWindow(Gtk.Window):
         update_btn.connect("clicked", self.on_check_updates)
         footer_box.pack_start(update_btn, True, True, 0)
 
-        # Roadmap Phase 9: real Settings page now exists — About's old
-        # content moved into SettingsWindow's own About section (see
-        # on_settings() below).
+        # About's content lives in SettingsWindow's own About section
+        # (see on_settings() below).
         settings_btn = build_icon_text_button("settings", "Settings")
         settings_btn.connect("clicked", self.on_settings)
         footer_box.pack_start(settings_btn, True, True, 0)
@@ -5531,11 +5492,9 @@ class CinnamonPresetsWindow(Gtk.Window):
         vbox.pack_start(self.status_label, False, False, 0)
 
         # --- footer: support links + app identity/legal --------------------
-        # BETA-0.10: was entirely missing from the app. Links are best-
-        # effort — PATREON_URL/YOUTUBE_URL/GITHUB_REPO_URL are still empty
-        # placeholders (see the TODO near their definitions), so clicking
-        # one before they're filled in just reports that instead of
-        # opening a broken/empty URL.
+        # Links are best-effort -- PATREON_URL/YOUTUBE_URL are still empty
+        # placeholders, so clicking one before they're filled in just
+        # reports that instead of opening a broken/empty URL.
         vbox.pack_start(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL), False, False, 2)
 
         footer = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
@@ -5556,7 +5515,7 @@ class CinnamonPresetsWindow(Gtk.Window):
             ("github", "GitHub", GITHUB_REPO_URL),
         ):
             # Real brand icon if icons/ui/<name>.svg exists (source from
-            # each platform's official brand kit — these three exist for
+            # each platform's official brand kit -- these three exist for
             # trademark recognition, not for us to reinterpret the way
             # this app's own category icons are); gracefully degrades to
             # a plain text button via build_icon_text_button's existing
@@ -5590,19 +5549,19 @@ class CinnamonPresetsWindow(Gtk.Window):
         info_box.pack_start(legal_label, False, False, 0)
 
         self._update_action_sensitivity()
-        # BETA-0.16 fix: calling refresh_list() synchronously here used to
-        # leave the list_stack showing "presets" even with zero presets
-        # saved -- Gtk.Stack.set_visible_child_name() doesn't reliably
-        # stick when called before the top-level window has ever been
-        # realized/shown, same underlying class of bug as the earlier
+        # Calling refresh_list() synchronously here can leave the list
+        # display showing "presets" even with zero presets saved --
+        # Gtk.Stack.set_visible_child_name() doesn't reliably stick when
+        # called before the top-level window has ever been
+        # realized/shown, same underlying class of bug as the
         # ApplyPresetDialog blank-dialog fix (toggling descendant state
         # before the ancestor window is part of a show pass). Deferred to
         # an idle callback so it runs after main() calls show_all().
         GLib.idle_add(lambda: self.refresh_list() or False)
 
-        # Roadmap Phase 8: throttled silent startup check, small delay so
+        # Throttled silent startup check, small delay so
         # it doesn't compete with the window's own first paint. Only ever
-        # surfaces anything if an update is actually found (the banner) —
+        # surfaces anything if an update is actually found (the banner) --
         # silent otherwise, unlike the manual "Check Now" button.
         GLib.timeout_add_seconds(2, self._maybe_auto_check_updates)
 
@@ -5753,7 +5712,7 @@ class CinnamonPresetsWindow(Gtk.Window):
 
     def _select_by_name(self, name):
         """Explicitly select a preset after an action that would otherwise
-        lose the selection on refresh_list()'s rebuild — e.g. after a
+        lose the selection on refresh_list()'s rebuild -- e.g. after a
         rename (the old folder name no longer exists to match against) or
         right after creating a new preset."""
         for child in self.flowbox.get_children():
@@ -5764,8 +5723,7 @@ class CinnamonPresetsWindow(Gtk.Window):
 
     def _on_flowbox_background_click(self, flowbox, event):
         """Two deselection paths, because relying on just one turned out
-        to be inconsistent (BETA-0.16 -> reported still flaky in
-        BETA-0.17):
+        to be inconsistent:
 
         1. Click lands on true empty space (nothing at that position at
            all) -> clear the selection. get_child_at_pos returns None
@@ -5773,16 +5731,16 @@ class CinnamonPresetsWindow(Gtk.Window):
         2. Click lands on the tile that's ALREADY selected -> toggle it
            off instead of letting GTK's default SINGLE-mode handling
            just re-confirm the same selection (which is what it
-           normally does — clicking a selected item again is a no-op by
+           normally does -- clicking a selected item again is a no-op by
            default). This is the actually-reliable path: a
            FlowBoxChild's hit area is its whole grid cell, not just the
-           visible thumbnail/label inside it — homogeneous sizing and
+           visible thumbnail/label inside it -- homogeneous sizing and
            per-cell stretch mean a lot of space that LOOKS empty around
            a tile is still technically "on" that child, not background,
            so path 1 alone only worked when a click happened to land in
            genuinely unclaimed space (below the last row, right of the
            last column). Toggling the exact already-selected child has
-           no such ambiguity — it's not coordinate-dependent at all.
+           no such ambiguity -- it's not coordinate-dependent at all.
         """
         if event.button != 1:
             return False
@@ -5796,7 +5754,7 @@ class CinnamonPresetsWindow(Gtk.Window):
         return False
 
     def _update_action_sensitivity(self):
-        """Selecting a preset is what unlocks everything else — Apply,
+        """Selecting a preset is what unlocks everything else -- Apply,
         Rename, and Delete all stay grayed out until something's actually
         selected, so the app never invites acting on nothing."""
         has_selection = self.get_selected_name() is not None
@@ -5834,7 +5792,7 @@ class CinnamonPresetsWindow(Gtk.Window):
         dialog.destroy()
         # Whatever happened (theme applied, a boot item applied, nothing
         # touched at all) was already reported inline inside the dialog
-        # itself — no need to guess at a summary here.
+        # itself -- no need to guess at a summary here.
         self.refresh_list()
 
     def on_delete(self, _btn):
@@ -6016,7 +5974,7 @@ class CinnamonPresetsWindow(Gtk.Window):
         """Plymouth theme detection without root came up empty (see
         save_plymouth/_plymouth_current_theme). On some systems even
         *reading* the current theme needs admin rights. Ask before doing
-        anything about it — this is its own separate pkexec prompt, only
+        anything about it -- this is its own separate pkexec prompt, only
         ever used for this one read-only check, and grants nothing beyond
         it: no credentials are kept, so saving again later asks again."""
         dialog = Gtk.MessageDialog(
@@ -6057,10 +6015,10 @@ class CinnamonPresetsWindow(Gtk.Window):
         self._run_update_check(silent=False)
 
     def _run_update_check(self, silent):
-        """Runs check_for_updates() on a background thread either way —
+        """Runs check_for_updates() on a background thread either way --
         it's a network call with its own timeout, no reason to block the
-        main loop for the manual button either now that run_with_progress
-        already established the pattern elsewhere in this app."""
+        main loop for the manual button either, same pattern
+        run_with_progress uses elsewhere in this app."""
         def worker():
             result = check_for_updates()
             GLib.idle_add(self._on_update_check_done, result, silent)
@@ -6122,7 +6080,7 @@ class CinnamonPresetsWindow(Gtk.Window):
                 self.set_status("Update applied — restarting…")
                 # Brief pause so the status message actually renders
                 # before the process image gets replaced out from under
-                # it — os.execv() never returns on success.
+                # it -- os.execv() never returns on success.
                 GLib.timeout_add(800, self._delayed_restart)
                 return
 
@@ -6130,9 +6088,8 @@ class CinnamonPresetsWindow(Gtk.Window):
                 self._info_dialog(
                     "Manual Update Needed",
                     "Running as an AppImage — in-place self-update for "
-                    "that isn't wired up yet (see the roadmap's Phase 8 "
-                    "AppImage item). Download the new version from the "
-                    "release page instead.",
+                    "that isn't wired up yet. Download the new version "
+                    "from the release page instead.",
                 )
             else:
                 self._info_dialog("Manual Update Needed", message)
@@ -6147,12 +6104,11 @@ class CinnamonPresetsWindow(Gtk.Window):
 
     def on_settings(self, _btn):
         dialog = SettingsWindow(self)
-        dialog.stack.set_visible_child_name("about")
         dialog.run()
         dialog.destroy()
         # Storage/General settings may have changed the on-disk state
         # (Erase All Data restarts the process itself and never reaches
-        # here; a plain Close does) — refresh so the list reflects
+        # here; a plain Close does) -- refresh so the list reflects
         # anything that did change (e.g. a migration re-run).
         self.refresh_list()
 
