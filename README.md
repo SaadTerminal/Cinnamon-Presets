@@ -78,4 +78,4 @@ This project is in beta, heading toward a 1.0 release. See
 
 ## License
 
-GPLv3 — see [LICENSE.txt](LICENSE.txt).
+GPLv3 — see [LICENSE](LICENSE).
