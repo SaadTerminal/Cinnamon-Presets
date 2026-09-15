@@ -65,7 +65,7 @@ from pathlib import Path
 from urllib.parse import urlparse, unquote
 
 APP_NAME = "Cinnamon Presets"
-VERSION = "BETA-0.19"
+VERSION = "0.19.0"
 
 GITHUB_REPO_URL = "https://github.com/SaadTerminal/Cinnamon-Presets.git"
 PATREON_URL = ""
@@ -501,7 +501,7 @@ def get_diagnostic_info():
     """Backs the 'Copy Diagnostic Info' one-click button. Version plus
     the tail of the current log file -- cheap, meant to lower the
     friction of filing a good bug report."""
-    lines = [f"{APP_NAME} {VERSION}"]
+    lines = [f"{APP_NAME} {VERSION} ({installation_kind()})"]
     try:
         if LOG_FILE.is_file():
             tail = LOG_FILE.read_text(errors="replace").splitlines()[-60:]
@@ -667,13 +667,40 @@ def sanitize_name(name):
     return name
 
 
+def _app_data_dir_candidates():
+    """Every place this app's own bundled data (helpers/, icons/) might
+    live, checked in this order:
+      1. Next to this script -- a source checkout, where helpers/ and
+         icons/ sit as plain siblings of the main script.
+      2. $APPDIR/usr/share/cinnamon-presets -- an AppImage. Its AppRun
+         launches this script from usr/bin/, not from the AppDir root,
+         so helpers/icons aren't its siblings there the way they are in
+         a checkout; $APPDIR (set by the AppImage runtime itself on
+         every run) is what points back to the right place.
+      3. /usr/share/cinnamon-presets -- a .deb install.
+      4. ~/.local/share/cinnamon-presets -- an install.sh (per-user) install.
+    Used by _helpers_dir() and CATEGORY_ICON_DIR_CANDIDATES so both stay
+    in sync automatically instead of each hardcoding its own list."""
+    candidates = [Path(__file__).resolve().parent]
+    appdir = os.environ.get("APPDIR")
+    if appdir:
+        candidates.append(Path(appdir) / "usr" / "share" / "cinnamon-presets")
+    candidates.append(Path("/usr/share/cinnamon-presets"))
+    candidates.append(Path.home() / ".local" / "share" / "cinnamon-presets")
+    return candidates
+
+
 def _helpers_dir():
-    """Find the folder holding apply-*.sh helper scripts. Prefers a
-    'helpers' folder next to this script (running from a git checkout
-    without installing), falls back to the installed location."""
-    dev_dir = Path(__file__).resolve().parent / "helpers"
-    if dev_dir.is_dir():
-        return dev_dir
+    """Find the folder holding apply-*.sh helper scripts -- the first
+    candidate root (see _app_data_dir_candidates()) that actually has a
+    helpers/ subfolder."""
+    for root in _app_data_dir_candidates():
+        candidate = root / "helpers"
+        if candidate.is_dir():
+            return candidate
+    # Nothing found -- fall back to the per-user install.sh path anyway,
+    # so callers get a consistent (if nonexistent) path to fail against
+    # rather than None, same as before this function existed.
     return Path.home() / ".local" / "share" / "cinnamon-presets" / "helpers"
 
 
@@ -2645,13 +2672,110 @@ def _script_git_root():
     return None
 
 
+def _is_appimage():
+    """AppImage sets this env var itself on every run, pointing at the
+    outer .AppImage file's own path -- the standard, documented way an
+    AppImage detects that it's running as one."""
+    return bool(os.environ.get("APPIMAGE"))
+
+
+def _is_deb_install():
+    """Whether this app is currently installed as a .deb package.
+    Asking dpkg directly (rather than checking for some marker file I'd
+    have to remember to drop during packaging and keep in sync by hand)
+    means this is always accurate on its own -- it flips itself back off
+    correctly if the person ever runs `apt remove` outside the app, with
+    nothing here to fall out of sync."""
+    try:
+        result = subprocess.run(
+            ["dpkg-query", "-W", "-f=${Status}", "cinnamon-presets"],
+            capture_output=True, text=True, timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False  # dpkg-query not present at all -- definitely not a .deb system
+    return result.returncode == 0 and "install ok installed" in result.stdout
+
+
+def installation_kind():
+    """One name for "how is this copy of the app installed", used
+    everywhere the update flow needs to branch: git checkout, .deb,
+    AppImage, or "other" (a plain zip download, or install.sh run
+    against a non-git copy -- either way, nothing here can self-update
+    it, so it falls back to the releases page).
+
+    Checked in this order: a git checkout takes priority over a .deb
+    install, on the theory that anyone running this app straight out of
+    a git clone -- most likely me, doing dev work -- wants git pull
+    behavior even if a stale .deb of an older build also happens to be
+    installed alongside it."""
+    if _script_git_root() is not None:
+        return "git"
+    if _is_deb_install():
+        return "deb"
+    if _is_appimage():
+        return "appimage"
+    return "other"
+
+
+def _parse_version(v):
+    """Parses this project's own X.Y.Z scheme (X: 0=beta/1=release,
+    Y: minor, Z: bugfix) into a (int, int, int) tuple for real numeric
+    comparison, not string comparison -- "0.9.0" is older than "0.19.0"
+    numerically but would sort the other way as plain text. Strips a
+    leading v/V (tag names are typically "v0.19.0"). Anything that
+    doesn't parse falls back to (0, 0, 0) so a malformed tag reads as
+    "very old" rather than crashing the comparison."""
+    v = (v or "").strip().lstrip("vV")
+    parts = v.split(".")
+    nums = []
+    for part in parts[:3]:
+        try:
+            nums.append(int(re.match(r"\d+", part).group()))
+        except (AttributeError, ValueError):
+            nums.append(0)
+    while len(nums) < 3:
+        nums.append(0)
+    return tuple(nums)
+
+
+# The exact filename patterns I publish release assets under -- the
+# update checker looks for a release asset whose name matches this
+# pattern (version substituted in) for whichever installation_kind()
+# applies. Keep these in sync with whatever the actual release workflow
+# uploads (see packaging/appimage/build-appimage.sh and debian/rules).
+DEB_ASSET_PATTERN = "cinnamon-presets_{version}_all.deb"
+APPIMAGE_ASSET_PATTERN = "Cinnamon-Presets-{version}-x86_64.AppImage"
+
+
+def _find_release_asset(assets, pattern, version):
+    """assets is a GitHub release API "assets" list. Looks for one whose
+    name matches pattern with version substituted in, returning its
+    browser_download_url, or None if this release doesn't have that
+    asset (e.g. an older release published before a format existed, or
+    a release still building where CI hasn't finished uploading yet)."""
+    wanted = pattern.format(version=version)
+    for asset in assets or []:
+        if asset.get("name") == wanted:
+            return asset.get("browser_download_url")
+    return None
+
+
 def check_for_updates(timeout=6):
     """
     Returns a dict describing the result:
       {"status": "up_to_date"}
-      {"status": "update_available", "latest": "v0.3", "url": "..."}
+      {"status": "update_available", "latest": "v0.3", "url": "...",
+       "asset_url": "..." or None}
       {"status": "error", "message": "..."}
       {"status": "not_configured"}
+
+    asset_url is the download link for whichever package format matches
+    installation_kind() on this machine -- None for "git" (git pull needs
+    no download) and None for "other" (nothing here can self-update it
+    regardless of what the release has). It can also be None for "deb"
+    or "appimage" if the matching asset just isn't in this particular
+    release yet -- the caller falls back to the releases page in that
+    case, same as any other update failure.
     """
     slug = _parse_repo_slug(GITHUB_REPO_URL)
     if not slug:
@@ -2666,6 +2790,7 @@ def check_for_updates(timeout=6):
             data = json.loads(resp.read().decode("utf-8"))
         latest_tag = data.get("tag_name", "").strip()
         release_url = data.get("html_url", GITHUB_REPO_URL)
+        assets = data.get("assets", [])
     except Exception as e:
         logger.warning(f"update check failed: {e}")
         return {"status": "error", "message": str(e)}
@@ -2674,14 +2799,28 @@ def check_for_updates(timeout=6):
         logger.warning("update check: no release tag found in API response")
         return {"status": "error", "message": "No release tag found."}
 
-    normalized_latest = latest_tag.lstrip("vV")
-    normalized_current = VERSION.lstrip("vV")
+    latest_version = _parse_version(latest_tag)
+    current_version = _parse_version(VERSION)
 
-    if normalized_latest == normalized_current:
+    if latest_version <= current_version:
         logger.info(f"update check: up to date ({VERSION})")
         return {"status": "up_to_date"}
-    logger.info(f"update check: update available ({VERSION} -> {latest_tag})")
-    return {"status": "update_available", "latest": latest_tag, "url": release_url}
+
+    normalized_latest = latest_tag.lstrip("vV")
+    kind = installation_kind()
+    asset_url = None
+    if kind == "deb":
+        asset_url = _find_release_asset(assets, DEB_ASSET_PATTERN, normalized_latest)
+    elif kind == "appimage":
+        asset_url = _find_release_asset(assets, APPIMAGE_ASSET_PATTERN, normalized_latest)
+
+    logger.info(f"update check: update available ({VERSION} -> {latest_tag}, kind={kind}, asset_url={asset_url!r})")
+    return {
+        "status": "update_available",
+        "latest": latest_tag,
+        "url": release_url,
+        "asset_url": asset_url,
+    }
 
 
 def perform_git_update():
@@ -2692,7 +2831,7 @@ def perform_git_update():
     """
     root = _script_git_root()
     if not root:
-        return False, "Not a git checkout — can't self-update in place."
+        return False, "Not a git checkout -- can't self-update in place."
 
     result = run(["git", "-C", str(root), "pull", "--ff-only"])
     if result.returncode != 0:
@@ -2700,14 +2839,111 @@ def perform_git_update():
     return True, result.stdout.strip() or "Already up to date."
 
 
-def _is_appimage():
-    """AppImage distribution is an optional future path -- there's no
-    build system in this project producing an AppImage yet, so there's
-    nothing real to download-and-swap. This just lets the update flow
-    recognize the situation and say so plainly instead of showing the
-    generic "not a git checkout" message, which would be confusing/wrong
-    for someone who didn't clone anything."""
-    return bool(os.environ.get("APPIMAGE"))
+def _download_to_temp(url, suffix, timeout=60):
+    """Streams url to a fresh temp file and returns its Path, or raises.
+    Used by both perform_deb_update() and perform_appimage_update() --
+    neither one wants the whole file buffered in memory, and both want
+    the same "give me a real path on disk to hand to dpkg/os.replace()"
+    shape."""
+    fd, tmp_path = tempfile.mkstemp(suffix=suffix)
+    os.close(fd)
+    tmp_path = Path(tmp_path)
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "cinnamon-presets-updater"})
+        with urllib.request.urlopen(req, timeout=timeout) as resp, open(tmp_path, "wb") as f:
+            shutil.copyfileobj(resp, f)
+    except Exception:
+        tmp_path.unlink(missing_ok=True)
+        raise
+    return tmp_path
+
+
+def perform_deb_update(asset_url):
+    """Downloads the release's .deb asset and installs it via pkexec --
+    same trust model as apply_grub()/apply_lightdm()/apply_plymouth(): a
+    .deb lives under /usr, so nothing short of root can update it, the
+    same way nothing short of root can install it in the first place.
+
+    Returns (True, message) on success, (False, message) on failure --
+    same shape as perform_git_update(), so the caller doesn't need to
+    care which one actually ran."""
+    if not asset_url:
+        return False, "No matching .deb found in the latest release."
+
+    try:
+        deb_path = _download_to_temp(asset_url, suffix=".deb")
+    except Exception as e:
+        return False, f"Download failed: {e}"
+
+    try:
+        helper = _helpers_dir() / "apply-deb-update.sh"
+        output = _run_pkexec_helper(
+            ["pkexec", "bash", str(helper), str(deb_path)],
+            "apply deb update",
+        )
+        return True, output or "Update installed."
+    except RuntimeError as e:
+        return False, str(e)
+    finally:
+        deb_path.unlink(missing_ok=True)
+
+
+def perform_appimage_update(asset_url):
+    """Downloads the release's AppImage asset and swaps it in for the
+    currently-running one. Unlike perform_git_update()/perform_deb_update(),
+    this deliberately does NOT try to relaunch automatically afterward --
+    see the big comment on that in _perform_update_now() for why. Returns
+    (True, message) on success, (False, message) on failure.
+
+    Root is never needed here: an AppImage is one plain file, normally
+    owned by whoever downloaded it, sitting wherever they put it -- the
+    same permissions that let someone double-click it to run it also let
+    this replace it."""
+    if not asset_url:
+        return False, "No matching AppImage found in the latest release."
+
+    appimage_path = Path(os.environ.get("APPIMAGE", ""))
+    if not appimage_path.is_file():
+        return False, "Could not determine this AppImage's own file path."
+    if not os.access(appimage_path.parent, os.W_OK):
+        return False, f"'{appimage_path.parent}' isn't writable -- move the AppImage somewhere you own, or download the new version manually."
+
+    try:
+        # Downloaded into the SAME directory as the live file, not /tmp --
+        # os.replace() below is only atomic (and only guaranteed to be a
+        # same-filesystem rename, not a slow cross-filesystem copy) when
+        # source and destination share a filesystem.
+        fd, tmp_name = tempfile.mkstemp(
+            suffix=".AppImage.part", dir=str(appimage_path.parent)
+        )
+        os.close(fd)
+        tmp_path = Path(tmp_name)
+        req = urllib.request.Request(asset_url, headers={"User-Agent": "cinnamon-presets-updater"})
+        with urllib.request.urlopen(req, timeout=120) as resp, open(tmp_path, "wb") as f:
+            shutil.copyfileobj(resp, f)
+    except Exception as e:
+        tmp_path.unlink(missing_ok=True)
+        return False, f"Download failed: {e}"
+
+    try:
+        # A truncated/failed download would otherwise silently become
+        # the new "app" -- a file this small could never be a real
+        # AppImage (they bundle a full ELF runtime stub before any of
+        # the actual payload), so treat it as a failed download instead
+        # of installing it.
+        if tmp_path.stat().st_size < 1_000_000:
+            raise RuntimeError("Downloaded file is too small to be a real AppImage.")
+        tmp_path.chmod(0o755)
+        # Same-filesystem rename -- atomic, and never leaves a half-
+        # written file at the real path even if this process were killed
+        # mid-download (that risk lives entirely in the .part file above,
+        # which this only touches once it's already known-good).
+        os.replace(tmp_path, appimage_path)
+    except Exception as e:
+        tmp_path.unlink(missing_ok=True)
+        return False, str(e)
+
+    return True, "Update downloaded and installed. Restart the app to finish."
 
 
 def _load_last_update_check_time():
@@ -2739,7 +2975,15 @@ def restart_process():
     themselves. This replaces the current process image entirely --
     re-importing modules in the same interpreter wouldn't pick up the
     change, since Python's already loaded the old bytecode for
-    everything into memory. Never returns on success."""
+    everything into memory. Never returns on success.
+
+    Works for both git (git pull rewrites cinnamon-presets.py in place,
+    execv re-opens and re-reads that same path fresh from disk) and deb
+    (dpkg -i replaces /usr/bin/cinnamon-presets the same way) -- in both
+    cases sys.argv[0] still points at a path that now holds the new
+    code. This is deliberately NOT used after an AppImage update; see
+    perform_appimage_update()'s docstring and the comment in
+    _perform_update_now() for why that one's different."""
     os.execv(sys.executable, [sys.executable] + sys.argv)
 
 
@@ -2854,10 +3098,7 @@ def render_gradient_placeholder(seed_text, width, height):
 # or the standard freedesktop icon set, and custom art is optional there.
 # ---------------------------------------------------------------------------
 
-CATEGORY_ICON_DIR_CANDIDATES = [
-    Path(__file__).resolve().parent / "icons" / "categories",           # running from a source checkout
-    Path.home() / ".local/share/cinnamon-presets/icons/categories",     # installed via install.sh
-]
+CATEGORY_ICON_DIR_CANDIDATES = [root / "icons" / "categories" for root in _app_data_dir_candidates()]
 
 CATEGORY_SYSTEM_ICON_NAMES = {
     "style": ["cs-themes", "preferences-desktop-theme"],
@@ -5195,7 +5436,7 @@ class SettingsWindow(Gtk.Dialog):
         if status == "update_available":
             self.updates_status_label.set_text(f"Update available: {result.get('latest')} (you have {VERSION}).")
             if self.main_window is not None:
-                self.main_window._show_update_banner(result.get("latest"), result.get("url"))
+                self.main_window._show_update_banner(result.get("latest"), result.get("url"), result.get("asset_url"))
         elif status == "up_to_date":
             self.updates_status_label.set_text(f"You're up to date ({VERSION}).")
         elif status == "not_configured":
@@ -5298,6 +5539,7 @@ class CinnamonPresetsWindow(Gtk.Window):
         self.thumb_size = app_settings["default_thumb_size"]
         self.sort_mode = app_settings["default_sort_mode"]
         self._pending_update_url = None
+        self._pending_update_asset_url = None
 
         vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         self.add(vbox)
@@ -6030,7 +6272,7 @@ class CinnamonPresetsWindow(Gtk.Window):
         status = result.get("status")
 
         if status == "update_available":
-            self._show_update_banner(result.get("latest"), result.get("url"))
+            self._show_update_banner(result.get("latest"), result.get("url"), result.get("asset_url"))
             if not silent:
                 self.set_status("")
             return False
@@ -6053,8 +6295,9 @@ class CinnamonPresetsWindow(Gtk.Window):
             self.set_status(f"You're up to date ({VERSION}).")
         return False
 
-    def _show_update_banner(self, latest, url):
+    def _show_update_banner(self, latest, url, asset_url=None):
         self._pending_update_url = url
+        self._pending_update_asset_url = asset_url
         self.update_infobar_label.set_text(f"Update available: {latest} (you have {VERSION}).")
         self.update_infobar.set_visible(True)
 
@@ -6066,9 +6309,21 @@ class CinnamonPresetsWindow(Gtk.Window):
 
     def _perform_update_now(self):
         self.update_infobar.set_visible(False)
+        kind = installation_kind()
+        asset_url = self._pending_update_asset_url
 
         def work():
-            return perform_git_update()
+            if kind == "git":
+                return perform_git_update()
+            if kind == "deb":
+                return perform_deb_update(asset_url)
+            if kind == "appimage":
+                return perform_appimage_update(asset_url)
+            return False, (
+                "This copy of the app isn't a git checkout, .deb install, "
+                "or AppImage, so there's nothing here that can update it "
+                "in place."
+            )
 
         def on_done(result, error):
             if error is not None:
@@ -6076,6 +6331,22 @@ class CinnamonPresetsWindow(Gtk.Window):
                 return
 
             ok, message = result
+            if ok and kind == "appimage":
+                # Deliberately no auto-restart here, unlike git/deb below.
+                # Those two rewrite files at a path this same running
+                # process will re-open fresh on exec -- an AppImage
+                # doesn't work that way: the code actually running right
+                # now was extracted into a temporary, read-only mount
+                # made from the OLD file, completely disconnected from
+                # the new one perform_appimage_update() just wrote to
+                # disk. Trying to exec back into that stale mount would
+                # just relaunch the old version and call it done. Asking
+                # for a manual restart is simpler and correct in every
+                # case, rather than getting into the business of tearing
+                # down and recreating AppImage's own FUSE mount myself.
+                self._info_dialog("Update Installed", message)
+                return
+
             if ok:
                 self.set_status("Update applied — restarting…")
                 # Brief pause so the status message actually renders
@@ -6084,19 +6355,12 @@ class CinnamonPresetsWindow(Gtk.Window):
                 GLib.timeout_add(800, self._delayed_restart)
                 return
 
-            if _is_appimage():
-                self._info_dialog(
-                    "Manual Update Needed",
-                    "Running as an AppImage — in-place self-update for "
-                    "that isn't wired up yet. Download the new version "
-                    "from the release page instead.",
-                )
-            else:
-                self._info_dialog("Manual Update Needed", message)
+            self._info_dialog("Manual Update Needed", message)
             if self._pending_update_url:
                 webbrowser.open(self._pending_update_url)
 
-        run_with_progress(self, "Updating", "Downloading the latest version…", work, on_done)
+        verb = "Downloading and installing" if kind in ("deb", "appimage") else "Downloading"
+        run_with_progress(self, "Updating", f"{verb} the latest version…", work, on_done)
 
     def _delayed_restart(self):
         restart_process()

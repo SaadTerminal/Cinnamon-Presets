@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+#
+# Entry point every AppImage runtime executes. I keep this lightweight
+# on purpose -- this app only makes sense on a Cinnamon desktop to begin
+# with, and a Cinnamon desktop already has python3-gi/GTK3/cairo
+# installed by definition, so there's nothing to gain (and a lot of
+# fragility to risk) from bundling a whole separate Python + GTK
+# runtime inside the image the way a fully self-contained AppImage
+# would. This just launches the bundled script with the system's own
+# python3 and GTK stack.
+
+HERE="$(dirname "$(readlink -f "${0}")")"
+
+# Most AppImage runtimes already export APPDIR themselves before running
+# this, but I set it explicitly too rather than assume that -- this app
+# reads $APPDIR itself (see _app_data_dir_candidates() in the main
+# script) to find its own bundled helpers/ and icons/ folders, so it
+# needs to be right regardless of which runtime version launched it.
+export APPDIR="${APPDIR:-$HERE}"
+
+# Best-effort: lets GTK's icon theme lookup also see this AppImage's own
+# bundled hicolor icons, same as a normal system-wide install would
+# provide via /usr/share. Harmless to prepend even where it changes
+# nothing.
+export XDG_DATA_DIRS="$APPDIR/usr/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+
+exec python3 "$APPDIR/usr/bin/cinnamon-presets" "$@"

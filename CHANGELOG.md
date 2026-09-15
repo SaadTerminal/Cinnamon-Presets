@@ -2,6 +2,28 @@
 
 All notable changes to Cinnamon Presets, from the pre-1.0 beta series.
 
+## 0.19.0
+
+  - Switched from BETA-x.y version strings to this project's own X.Y.Z
+    scheme (X: 0 = beta, 1 = release; Y: minor; Z: bugfix).
+  - Added .deb and AppImage packaging (see debian/ and
+    packaging/appimage/), plus a GitHub Actions workflow that builds
+    and publishes both on every version tag.
+  - The in-app "Check for Updates" flow now recognizes how it's
+    installed and updates itself the matching way: `git pull` for a
+    source checkout, a pkexec-authorized `dpkg -i` for .deb, or an
+    in-place file swap for AppImage (which then asks for a manual
+    restart rather than trying to relaunch across its own FUSE mount).
+  - Removed the GRUB "untested" warning and its apply-time cooldown,
+    now that it's been verified working end-to-end. LightDM, Plymouth,
+    and GRUB now share one consistent confirmation dialog on apply,
+    rather than GRUB having its own separate wording.
+  - Settings now opens on the General tab by default, instead of
+    always landing on About.
+  - Every helper script now has full inline documentation of what it
+    does and why, matching the same treatment the main script already
+    had.
+
 ## BETA-0.18 (bug fixes) adds
 
   - Fixed a real, broader-than-reported bug: find_asset_dir() judged

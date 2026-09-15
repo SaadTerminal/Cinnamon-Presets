@@ -1,0 +1,36 @@
+#!/usr/bin/make -f
+#
+# There's no real "build" step -- this is a pure Python/GTK script app,
+# nothing here gets compiled. I still go through the standard dh
+# sequence (rather than hand-rolling dpkg-deb calls) so all the usual
+# packaging housekeeping -- changelog/copyright installation, desktop
+# file and icon cache validation, permission normalization, etc. --
+# happens the standard way instead of me having to reimplement it.
+
+%:
+	dh $@
+
+# Everything this package installs, by hand: dh_install alone can't
+# rename cinnamon-presets.py to cinnamon-presets (dropping the
+# extension, the same way install.sh's `install` calls do) or set its
+# executable bit, so I do the whole layout here in one place instead of
+# splitting it between a .install file and permission overrides.
+override_dh_auto_install:
+	install -d debian/cinnamon-presets/usr/bin
+	install -m 755 cinnamon-presets.py debian/cinnamon-presets/usr/bin/cinnamon-presets
+
+	install -d debian/cinnamon-presets/usr/share/cinnamon-presets/helpers
+	install -m 755 helpers/*.sh debian/cinnamon-presets/usr/share/cinnamon-presets/helpers/
+
+	install -d debian/cinnamon-presets/usr/share/applications
+	install -m 644 cinnamon-presets.desktop debian/cinnamon-presets/usr/share/applications/
+
+	install -d debian/cinnamon-presets/usr/share/icons/hicolor/128x128/apps
+	install -m 644 icons/cinnamon-presets.svg debian/cinnamon-presets/usr/share/icons/hicolor/128x128/apps/
+
+	# Custom hand-drawn category icons -- optional, same "copy whatever
+	# exists so far" behavior as install.sh's matching step.
+	if compgen -G "icons/categories/*" > /dev/null 2>&1; then \
+		install -d debian/cinnamon-presets/usr/share/cinnamon-presets/icons/categories; \
+		install -m 644 icons/categories/* debian/cinnamon-presets/usr/share/cinnamon-presets/icons/categories/; \
+	fi

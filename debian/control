@@ -1,0 +1,28 @@
+Source: cinnamon-presets
+Section: gnome
+Priority: optional
+Maintainer: SaadTerminal <noreply@users.noreply.github.com>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.6.2
+Homepage: https://github.com/SaadTerminal/Cinnamon-Presets
+Rules-Requires-Root: no
+
+Package: cinnamon-presets
+Architecture: all
+Depends: ${misc:Depends},
+         python3,
+         python3-gi,
+         gir1.2-gtk-3.0,
+         python3-cairo,
+         dconf-cli,
+         policykit-1 | pkexec
+Recommends: cinnamon
+Description: Desktop preset manager for Linux Mint Cinnamon
+ Saves and restores full desktop "look" presets -- GTK theme, icon
+ theme, cursor theme and size, wallpaper, panel layout and applets,
+ extensions, desklets, and sound theme -- as one switchable snapshot,
+ the way Windows XP handled visual styles.
+ .
+ Optionally also snapshots and restores the login screen (LightDM),
+ boot splash (Plymouth), and bootloader (GRUB) config, each applied
+ as its own separately-authorized action.
