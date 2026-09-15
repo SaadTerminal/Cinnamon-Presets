@@ -1,0 +1,64 @@
+# Builds the .deb and AppImage and attaches both to a GitHub Release,
+# triggered by pushing a version tag (e.g. `git tag v0.19.0 && git push
+# --tags`). This is what check_for_updates() in the app itself actually
+# fetches from -- DEB_ASSET_PATTERN / APPIMAGE_ASSET_PATTERN in
+# cinnamon-presets.py have to keep matching whatever filenames the two
+# jobs below produce, since that's how the app recognizes which asset
+# is meant for it.
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build-deb:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install packaging tools
+        run: sudo apt-get update && sudo apt-get install -y debhelper fakeroot
+      - name: Build .deb
+        run: dpkg-buildpackage -us -uc -b
+      - name: Move .deb out of the parent dir dpkg-buildpackage drops it in
+        run: mkdir -p dist && mv ../cinnamon-presets_*_all.deb dist/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deb-package
+          path: dist/*.deb
+
+  build-appimage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download appimagetool
+        run: |
+          wget -q "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage" -O /usr/local/bin/appimagetool
+          chmod +x /usr/local/bin/appimagetool
+      - name: Build AppImage
+        run: bash packaging/appimage/build-appimage.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: appimage-package
+          path: Cinnamon-Presets-*-x86_64.AppImage
+
+  publish-release:
+    needs: [build-deb, build-appimage]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Publish release with both assets attached
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            artifacts/deb-package/*.deb \
+            artifacts/appimage-package/*.AppImage \
+            --repo "${{ github.repository }}" \
+            --title "${{ github.ref_name }}" \
+            --generate-notes
